@@ -560,290 +560,282 @@ footer {
   let frame = 0;
   let mouseX = -9999, mouseY = -9999;
 
-  // ── Memory types ─────────────────────────────────────────────────────────
-  // Each node type has a color and category
-  const TYPES = {
-    memory:   [245, 166,  35],   // amber
-    project:  [ 62, 207, 202],   // teal
-    feedback: [124, 106, 247],   // purple
-    ref:      [ 80, 200, 120],   // green
-    context:  [100, 160, 240],   // blue
-  };
+  // ── Device detection ──────────────────────────────────────────────────────
+  const isMobile = window.innerWidth < 768;
+  const NODE_COUNT = isMobile ? 50 : 90;
 
-  // Memory entries that will appear as nodes
-  const MEM_DATA = [
-    { type: 'memory',   text: 'prefers terse replies' },
-    { type: 'project',  text: 'campus-ai' },
-    { type: 'feedback', text: 'no mocks in tests' },
-    { type: 'context',  text: 'SFU · Burnaby BC' },
-    { type: 'ref',      text: 'Linear: INGEST' },
-    { type: 'project',  text: 'family-tracker' },
-    { type: 'memory',   text: 'morning briefing 8am' },
-    { type: 'feedback', text: 'confirm before push' },
-    { type: 'project',  text: 'notesgraph' },
-    { type: 'memory',   text: 'uses Supabase + pgvector' },
-    { type: 'context',  text: 'Next.js · TypeScript' },
-    { type: 'ref',      text: 'GitHub: AbhiPoluri' },
-    { type: 'feedback', text: 'narrate actions' },
-    { type: 'project',  text: 'WhisperFlow' },
-    { type: 'memory',   text: 'Cowork: Claude Desktop' },
-    { type: 'context',  text: 'iMessage pipeline' },
-    { type: 'ref',      text: 'vercel.com/dashboard' },
-    { type: 'memory',   text: 'Groq llama-3.3-70b' },
-    { type: 'feedback', text: 'no emojis unless asked' },
-    { type: 'project',  text: 'StriveSync' },
-    { type: 'memory',   text: 'dark mode preferred' },
-    { type: 'context',  text: 'apa203@sfu.ca' },
-    { type: 'ref',      text: 'ntfy: sashi_cowork' },
-    { type: 'feedback', text: 'terse, no filler' },
-    { type: 'memory',   text: 'RAG: 965 docs ingested' },
+  // ── 3D state ──────────────────────────────────────────────────────────────
+  let angleY = 0;
+  const FOV = 380;
+  const CAM_Z = 500;
+  const ROT_SPEED = 0.003;
+
+  // Node colors
+  const COLORS = [
+    [245, 166,  35],  // amber
+    [ 62, 207, 202],  // teal
+    [124, 106, 247],  // purple
+    [ 80, 200, 120],  // green
+    [100, 160, 240],  // blue
   ];
 
-  let nodes = [];   // { x, y, vx, vy, type, text, r, opacity, edges[] }
-  let edges = [];   // { a (idx or -1=hub), b, opacity }
-  let signals = []; // { edgeIdx, t, speed, [r,g,b] }
-  let hub = null;   // center abhimem node
+  let nodes = [];
+  let edges = [];
+  let signals = [];
+  let brainPath = null; // Path2D, built once in resize
 
-  function buildHub() {
-    hub = {
-      x: W / 2, y: H * 0.46,
-      type: 'memory', text: 'abhimem',
-      r: 13, opacity: 1, isHub: true,
-    };
+  // ── Build Path2D brain outline (top-down view, two lobes) ─────────────────
+  function buildBrainPath() {
+    const cx = W / 2, cy = H * 0.46;
+    const bw = Math.min(W * 0.38, H * 0.34);
+    const bh = bw * 0.80;
+    brainPath = new Path2D();
+    const N = 180;
+    for (let i = 0; i <= N; i++) {
+      const theta = (i / N) * Math.PI * 2;
+      // Two-lobe shape: central sulcus at top/bottom (theta ≈ ±π/2)
+      // cos(theta)=0 at π/2 and 3π/2 → max dip there
+      const sulcus = Math.exp(-Math.cos(theta) ** 2 * 4.5) * 0.15;
+      // Gyri bumps on outer edge
+      const bumps = 1 + 0.055 * Math.sin(7 * theta) + 0.038 * Math.sin(11 * theta + 0.6) + 0.022 * Math.cos(17 * theta);
+      // Temporal lobe widening on sides
+      const lobeW = 1 + 0.04 * Math.abs(Math.sin(theta));
+      const rx = bw * (1 - sulcus) * bumps * lobeW;
+      const ry = bh * (1 - sulcus * 0.7) * bumps;
+      const x = cx + rx * Math.cos(theta);
+      const y = cy + ry * Math.sin(theta);
+      if (i === 0) brainPath.moveTo(x, y);
+      else brainPath.lineTo(x, y);
+    }
+    brainPath.closePath();
   }
 
-  function spawnNode() {
-    if (nodes.length >= MEM_DATA.length) return;
-    const idx = nodes.length;
-    const d = MEM_DATA[idx];
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.min(W, H) * (0.22 + Math.random() * 0.24);
-    const tx = Math.max(80, Math.min(W - 80, W/2 + Math.cos(angle) * dist));
-    const ty = Math.max(80, Math.min(H - 80, H*0.46 + Math.sin(angle) * dist));
+  // ── Build 3D neural network ───────────────────────────────────────────────
+  function buildNetwork() {
+    nodes = [];
+    edges = [];
+    signals = [];
 
-    const node = {
-      x: hub.x, y: hub.y,
-      vx: Math.cos(angle) * 1.5, vy: Math.sin(angle) * 1.5,
-      tx, ty,
-      type: d.type, text: d.text,
-      r: 5 + Math.random() * 3,
-      opacity: 0, edges: [],
-    };
-    nodes.push(node);
+    const scale = Math.min(W, H) * 0.30;
 
-    // Connect to hub
-    const ei = edges.length;
-    edges.push({ a: -1, b: idx, opacity: 0 });
-    hub.edges = hub.edges || [];
-    hub.edges.push(ei);
-    node.edges.push(ei);
+    // Distribute nodes inside a brain-shaped ellipsoid
+    let attempts = 0;
+    while (nodes.length < NODE_COUNT && attempts < NODE_COUNT * 10) {
+      attempts++;
+      const x = (Math.random() * 2 - 1);
+      const y = (Math.random() * 2 - 1) * 0.72;
+      const z = (Math.random() * 2 - 1) * 0.80;
+      // Reject outside ellipsoid
+      if (x * x + (y / 0.72) ** 2 + (z / 0.80) ** 2 > 0.92) continue;
+      // Reject the central sulcus region (thin strip along y-axis)
+      if (Math.abs(z) < 0.06 && Math.abs(y) < 0.5) continue;
 
-    // Connect to up to 2 same-type nodes
-    const sameType = nodes.slice(0, -1).filter(n => n.type === d.type);
-    for (const other of sameType.slice(0, 2)) {
-      const oi = nodes.indexOf(other);
-      const ei2 = edges.length;
-      edges.push({ a: oi, b: idx, opacity: 0 });
-      other.edges.push(ei2);
-      node.edges.push(ei2);
+      nodes.push({
+        ox: x * scale, oy: y * scale, oz: z * scale,
+        px: 0, py: 0, depth: 0,
+        r: 2.5 + Math.random() * 3,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        pulse: Math.random() * Math.PI * 2,
+      });
     }
 
-    // Random cross-connection
-    if (nodes.length > 4 && Math.random() < 0.35) {
-      const ri = Math.floor(Math.random() * (nodes.length - 1));
-      const ei3 = edges.length;
-      edges.push({ a: ri, b: idx, opacity: 0 });
-      nodes[ri].edges.push(ei3);
-      node.edges.push(ei3);
+    // Edges: connect nearby nodes (distance threshold)
+    const THRESH = scale * 0.52;
+    for (let i = 0; i < nodes.length; i++) {
+      let edgeCount = 0;
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        const d = Math.hypot(a.ox - b.ox, a.oy - b.oy, a.oz - b.oz);
+        if (d < THRESH && edgeCount < 5) {
+          edges.push({ a: i, b: j });
+          edgeCount++;
+        }
+      }
     }
   }
 
-  function nodePos(idx) {
-    if (idx === -1) return hub;
-    return nodes[idx];
+  // ── Project node to screen ────────────────────────────────────────────────
+  function projectNode(n) {
+    // Y-axis rotation
+    const cosY = Math.cos(angleY), sinY = Math.sin(angleY);
+    const rx = n.ox * cosY + n.oz * sinY;
+    const ry = n.oy;
+    const rz = -n.ox * sinY + n.oz * cosY;
+    // Gentle X-axis tilt (nod)
+    const tilt = Math.sin(time * 0.18) * 0.07;
+    const cosX = Math.cos(tilt), sinX = Math.sin(tilt);
+    const ry2 = ry * cosX - rz * sinX;
+    const rz2 = ry * sinX + rz * cosX;
+    // Perspective
+    const s = FOV / (FOV + rz2 + CAM_Z);
+    n.px = W / 2 + rx * s;
+    n.py = H * 0.46 + ry2 * s;
+    n.depth = s; // ~0.33–0.64; larger = closer
   }
 
-  // ── Draw ─────────────────────────────────────────────────────────────────
+  // ── Draw ──────────────────────────────────────────────────────────────────
   function draw() {
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(8,8,8,0.18)';
+    ctx.fillStyle = '#080808';
     ctx.fillRect(0, 0, W, H);
+
+    // Project all nodes
+    for (const n of nodes) projectNode(n);
+
+    // Draw neural network clipped inside brain shape
+    ctx.save();
+    ctx.clip(brainPath);
 
     // Edges
     for (const e of edges) {
-      if (e.opacity < 0.01) continue;
-      const a = nodePos(e.a), b = nodePos(e.b);
-      const [r, g, bl] = TYPES[e.a === -1 ? 'memory' : nodes[e.a].type];
+      const a = nodes[e.a], b = nodes[e.b];
+      const depth = (a.depth + b.depth) * 0.5;
+      const [r, g, bl] = a.color;
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = `rgba(${r},${g},${bl},${e.opacity * 0.16})`;
-      ctx.lineWidth = 0.8;
+      ctx.moveTo(a.px, a.py);
+      ctx.lineTo(b.px, b.py);
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${depth * 0.28})`;
+      ctx.lineWidth = 0.8 * depth * 1.8;
       ctx.stroke();
     }
 
-    // Signals (additive blend = free glow)
+    // Signals (additive = free glow)
     ctx.globalCompositeOperation = 'lighter';
     for (const s of signals) {
       const e = edges[s.edgeIdx];
-      const a = nodePos(e.a), b = nodePos(e.b);
+      if (!e) continue;
+      const a = nodes[e.a], b = nodes[e.b];
       const t = s.reverse ? 1 - s.t : s.t;
-      const sx = a.x + (b.x - a.x) * t;
-      const sy = a.y + (b.y - a.y) * t;
+      const depth = a.depth + (b.depth - a.depth) * t;
       const [r, g, bl] = s.col;
       ctx.beginPath();
-      ctx.arc(sx, sy, 2.8, 0, Math.PI * 2);
+      ctx.arc(
+        a.px + (b.px - a.px) * t,
+        a.py + (b.py - a.py) * t,
+        3.5 * depth, 0, Math.PI * 2
+      );
       ctx.fillStyle = `rgba(${r},${g},${bl},0.95)`;
       ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    // Nodes
-    const allNodes = [...nodes, hub];
-    for (const n of allNodes) {
-      if (n.opacity < 0.01) continue;
-      const [r, g, bl] = TYPES[n.type];
-      const pulse = 0.5 + 0.5 * Math.sin(time * 1.3 + n.x * 0.008);
-      const nodeR = n.r * (1 + pulse * 0.12);
+    // Nodes (back-to-front)
+    const order = nodes.map((_, i) => i).sort((a, b) => nodes[a].depth - nodes[b].depth);
+    for (const ni of order) {
+      const n = nodes[ni];
+      const [r, g, bl] = n.color;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 1.6 + n.pulse);
+      const nodeR = n.r * n.depth * (1 + pulse * 0.2);
+      const alpha = 0.35 + 0.65 * n.depth;
 
-      // Halo
-      const halo = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, nodeR * 4.5);
-      halo.addColorStop(0, `rgba(${r},${g},${bl},${n.opacity * 0.13})`);
+      // Halo (source-over, soft radial)
+      const halo = ctx.createRadialGradient(n.px, n.py, 0, n.px, n.py, nodeR * 3.5);
+      halo.addColorStop(0, `rgba(${r},${g},${bl},${alpha * 0.18})`);
       halo.addColorStop(1, `rgba(${r},${g},${bl},0)`);
       ctx.beginPath();
-      ctx.arc(n.x, n.y, nodeR * 4.5, 0, Math.PI * 2);
+      ctx.arc(n.px, n.py, nodeR * 3.5, 0, Math.PI * 2);
       ctx.fillStyle = halo;
       ctx.fill();
 
-      // Core (additive for glow)
+      // Core (additive = glow without shadowBlur)
       ctx.globalCompositeOperation = 'lighter';
-      const core = ctx.createRadialGradient(n.x - nodeR*0.3, n.y - nodeR*0.3, 0, n.x, n.y, nodeR);
-      core.addColorStop(0, `rgba(255,255,255,${n.opacity * 0.8})`);
-      core.addColorStop(0.45, `rgba(${r},${g},${bl},${n.opacity * 0.9})`);
-      core.addColorStop(1, `rgba(${Math.max(0,r-50)},${Math.max(0,g-50)},${Math.max(0,bl-50)},${n.opacity * 0.4})`);
       ctx.beginPath();
-      ctx.arc(n.x, n.y, nodeR, 0, Math.PI * 2);
-      ctx.fillStyle = core;
+      ctx.arc(n.px, n.py, nodeR, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha * 0.75})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(n.px, n.py, nodeR * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha * 0.65})`;
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
-
-      // Pulse ring on hub
-      if (n.isHub) {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, nodeR + 7 + pulse * 10, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${r},${g},${bl},${0.18 * (1 - pulse)})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-
-      // Label
-      const labelAlpha = n.isHub ? 0.85 : Math.max(0, (n.opacity - 0.4) / 0.6) * 0.7;
-      if (labelAlpha > 0.02) {
-        ctx.font = `${n.isHub ? '500 11px' : '400 9px'} Inter, sans-serif`;
-        ctx.fillStyle = `rgba(220,220,220,${labelAlpha})`;
-        ctx.textAlign = 'center';
-        ctx.fillText(n.text, n.x, n.y + nodeR + 12);
-      }
     }
+
+    ctx.restore(); // remove clip
+
+    // Brain outline glow — multi-layer stroke (no shadowBlur needed)
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = 'rgba(245,166,35,0.03)';
+    ctx.stroke(brainPath);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(245,166,35,0.07)';
+    ctx.stroke(brainPath);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(245,166,35,0.22)';
+    ctx.stroke(brainPath);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(245,166,35,0.55)';
+    ctx.stroke(brainPath);
+
+    // Central sulcus hint (faint vertical line)
+    const cy = H * 0.46;
+    const bh = Math.min(W * 0.38, H * 0.34) * 0.80;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, cy - bh * 0.82);
+    ctx.lineTo(W / 2, cy + bh * 0.82);
+    ctx.strokeStyle = 'rgba(245,166,35,0.07)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
   // ── Update ────────────────────────────────────────────────────────────────
   function update() {
     time += 0.012;
     frame++;
+    angleY += ROT_SPEED;
 
-    // Spawn a node every 55 frames
-    if (frame % 55 === 0) spawnNode();
-
-    // Fade in edges
-    for (const e of edges) {
-      if (e.opacity < 1) e.opacity = Math.min(1, e.opacity + 0.012);
-    }
-
-    // Update graph nodes
-    for (const n of nodes) {
-      if (n.opacity < 1) n.opacity = Math.min(1, n.opacity + 0.018);
-
-      // Spring toward target
-      n.vx = n.vx * 0.9 + (n.tx - n.x) * 0.006;
-      n.vy = n.vy * 0.9 + (n.ty - n.y) * 0.006;
-
-      // Gentle drift
-      n.vx += (Math.random() - 0.5) * 0.06;
-      n.vy += (Math.random() - 0.5) * 0.06;
-
-      // Repel from hub
-      const hx = n.x - hub.x, hy = n.y - hub.y;
-      const hd = Math.hypot(hx, hy);
-      if (hd < 70 && hd > 0.1) {
-        const f = (70 - hd) / 70 * 0.4;
-        n.vx += (hx / hd) * f;
-        n.vy += (hy / hd) * f;
-      }
-
-      // Repel from other nodes
-      for (const o of nodes) {
-        if (o === n) continue;
-        const ox = n.x - o.x, oy = n.y - o.y;
-        const od = Math.hypot(ox, oy);
-        if (od < 55 && od > 0.1) {
-          const f = (55 - od) / 55 * 0.25;
-          n.vx += (ox / od) * f;
-          n.vy += (oy / od) * f;
-        }
-      }
-
-      // Clamp speed
-      const spd = Math.hypot(n.vx, n.vy);
-      if (spd > 1.2) { n.vx *= 1.2/spd; n.vy *= 1.2/spd; }
-
-      n.x += n.vx;
-      n.y += n.vy;
-    }
-
-    // Fire signals along edges
-    if (frame % 18 === 0 && edges.length > 0) {
+    // Fire synapse signal every 22 frames
+    if (frame % 22 === 0 && edges.length > 0) {
       const ei = Math.floor(Math.random() * edges.length);
-      const e = edges[ei];
-      if (e.opacity > 0.5) {
-        const srcType = e.a === -1 ? 'memory' : nodes[e.a].type;
-        signals.push({ edgeIdx: ei, t: 0, speed: 0.007 + Math.random() * 0.007,
-                       col: TYPES[srcType], reverse: Math.random() < 0.5 });
-      }
+      signals.push({
+        edgeIdx: ei, t: 0,
+        speed: 0.008 + Math.random() * 0.009,
+        col: nodes[edges[ei].a].color,
+        reverse: Math.random() < 0.5,
+      });
     }
 
-    // Mouse hover: burst signals
-    if (frame % 25 === 0 && mouseX > 0) {
-      for (let ni = 0; ni < nodes.length; ni++) {
-        const n = nodes[ni];
-        if (Math.hypot(mouseX - n.x, mouseY - n.y) < 50 && n.edges.length > 0) {
-          const ei = n.edges[Math.floor(Math.random() * n.edges.length)];
-          if (edges[ei] && edges[ei].opacity > 0.3) {
-            signals.push({ edgeIdx: ei, t: 0, speed: 0.012 + Math.random() * 0.006,
-                           col: TYPES[n.type], reverse: Math.random() < 0.5 });
-          }
-        }
-      }
-    }
-
-    // Update signals
+    // Cascade: signal completion triggers a neighbor signal
     for (let i = signals.length - 1; i >= 0; i--) {
       signals[i].t += signals[i].speed;
-      if (signals[i].t >= 1) signals.splice(i, 1);
+      if (signals[i].t >= 1) {
+        // Occasionally cascade to a neighboring edge
+        if (Math.random() < 0.4 && edges.length > 0) {
+          const srcEdge = edges[signals[i].edgeIdx];
+          const endNode = signals[i].reverse ? srcEdge.a : srcEdge.b;
+          // Find edges connected to endNode
+          const candidates = edges
+            .map((e, idx) => ({ e, idx }))
+            .filter(({ e }) => (e.a === endNode || e.b === endNode) && e !== srcEdge);
+          if (candidates.length > 0) {
+            const next = candidates[Math.floor(Math.random() * candidates.length)];
+            signals.push({
+              edgeIdx: next.idx, t: 0,
+              speed: 0.009 + Math.random() * 0.008,
+              col: nodes[endNode].color,
+              reverse: next.e.b === endNode,
+            });
+          }
+        }
+        signals.splice(i, 1);
+      }
     }
+
+    // Cap signals
+    if (signals.length > 30) signals.splice(0, signals.length - 30);
   }
 
-  // ── Loop ─────────────────────────────────────────────────────────────────
+  // ── Loop ──────────────────────────────────────────────────────────────────
   function loop() { update(); draw(); requestAnimationFrame(loop); }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1 : 1.5);
     W = canvas.offsetWidth;
     H = canvas.offsetHeight;
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
-    buildHub();
+    buildBrainPath();
+    buildNetwork();
   }
 
   canvas.addEventListener('mousemove', e => {
@@ -852,12 +844,27 @@ footer {
     mouseY = e.clientY - rect.top;
   });
   canvas.addEventListener('mouseleave', () => { mouseX = -9999; mouseY = -9999; });
+  canvas.addEventListener('touchstart', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.touches[0].clientX - rect.left;
+    mouseY = e.touches[0].clientY - rect.top;
+    // Fire burst of signals on tap
+    for (let ni = 0; ni < nodes.length; ni++) {
+      if (Math.hypot(mouseX - nodes[ni].px, mouseY - nodes[ni].py) < 55) {
+        for (let ei = 0; ei < edges.length; ei++) {
+          const e = edges[ei];
+          if (e.a === ni || e.b === ni) {
+            signals.push({ edgeIdx: ei, t: 0, speed: 0.014,
+                           col: nodes[ni].color, reverse: e.b === ni });
+          }
+        }
+        break;
+      }
+    }
+  }, { passive: true });
 
   window.addEventListener('resize', resize);
   resize();
-
-  // Pre-spawn 10 nodes immediately so the canvas isn't empty
-  for (let i = 0; i < 10; i++) spawnNode();
   requestAnimationFrame(loop);
 </script>
 </body>
