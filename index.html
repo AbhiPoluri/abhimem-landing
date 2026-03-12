@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>abhimem — persistent memory for Claude Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #080808;
+  --bg2: #0b0b0b;
+  --surface: #111;
+  --surface2: #161616;
+  --border: #1d1d1d;
+  --border2: #252525;
+  --text: #e8e8e8;
+  --text2: #6e6e6e;
+  --muted: #333;
+  --amber: #f5a623;
+  --amber-dim: rgba(245,166,35,0.12);
+  --amber-glow: rgba(245,166,35,0.22);
+  --teal: #3ecfca;
+  --teal-dim: rgba(62,207,202,0.1);
+  --purple: #7c6af7;
+  --purple-dim: rgba(124,106,247,0.1);
+}
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+/* ── Nav ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 40px; height: 58px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(8,8,8,0.9);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.nav-logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14.5px; font-weight: 500; color: var(--text);
+  letter-spacing: -0.02em; text-decoration: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.nav-logo .mem-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--amber); }
+  50% { opacity: 0.5; box-shadow: 0 0 3px var(--amber); }
+}
+.nav-logo span { color: var(--amber); }
+nav a.nav-cta {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--amber); color: #000; text-decoration: none;
+  font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 6px;
+  transition: opacity 0.15s, transform 0.15s;
+}
+nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
+
+/* ── Hero ── */
+.hero {
+  position: relative; min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  overflow: hidden; padding: 58px 24px 0;
+}
+#mem-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  z-index: 0;
+}
+.hero-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 55% 55% at 50% 50%, transparent 25%, var(--bg) 100%);
+  z-index: 1; pointer-events: none;
+}
+.hero-fade {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 200px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  z-index: 1; pointer-events: none;
+}
+.hero-content {
+  position: relative; z-index: 2;
+  text-align: center; display: flex; flex-direction: column;
+  align-items: center; pointer-events: none;
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(11,11,11,0.75); border: 1px solid var(--border2);
+  backdrop-filter: blur(8px); border-radius: 100px;
+  padding: 5px 14px; font-size: 11.5px; font-weight: 500; color: var(--text2);
+  margin-bottom: 28px; letter-spacing: 0.02em; pointer-events: auto;
+}
+.hero-badge code {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--amber); background: var(--amber-dim);
+  padding: 1px 6px; border-radius: 3px;
+}
+.hero h1 {
+  font-size: clamp(42px, 8vw, 76px); font-weight: 700;
+  line-height: 1.07; letter-spacing: -0.045em; max-width: 820px; margin-bottom: 22px;
+}
+.hero h1 .grad {
+  background: linear-gradient(135deg, var(--amber) 0%, #ff8c42 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.hero p {
+  font-size: 17px; line-height: 1.65; color: var(--text2);
+  max-width: 500px; margin-bottom: 38px;
+}
+.hero-actions {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  justify-content: center; pointer-events: auto; margin-bottom: 60px;
+}
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--amber); color: #000; text-decoration: none;
+  font-size: 14px; font-weight: 700; padding: 13px 30px; border-radius: 8px;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 0 30px rgba(245,166,35,0.28);
+}
+.btn-primary:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 0 48px rgba(245,166,35,0.42); }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(11,11,11,0.75); backdrop-filter: blur(8px);
+  color: var(--text2); text-decoration: none;
+  font-size: 14px; font-weight: 500; padding: 13px 24px; border-radius: 8px;
+  border: 1px solid var(--border2);
+  transition: border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.btn-secondary:hover { border-color: var(--muted); color: var(--text); transform: translateY(-2px); }
+
+/* ── Pipeline diagram ── */
+.pipeline {
+  display: flex; align-items: center; gap: 0;
+  overflow-x: auto; padding: 4px 0;
+  scrollbar-width: none;
+}
+.pipeline::-webkit-scrollbar { display: none; }
+.pipe-step {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; flex-shrink: 0;
+}
+.pipe-box {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 12px 16px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--text2); white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s;
+}
+.pipe-box.active { border-color: var(--amber); color: var(--amber); }
+.pipe-box.teal { border-color: var(--teal); color: var(--teal); }
+.pipe-box.purple { border-color: var(--purple); color: var(--purple); }
+.pipe-label { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
+.pipe-arrow {
+  width: 40px; height: 1px; background: var(--border2);
+  flex-shrink: 0; position: relative; top: -12px;
+}
+.pipe-arrow::after {
+  content: ''; position: absolute; right: -1px; top: -3px;
+  border: 4px solid transparent; border-left-color: var(--border2);
+}
+
+/* ── Sections ── */
+.section { padding: 100px 24px; max-width: 1100px; margin: 0 auto; }
+.section-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--amber); margin-bottom: 14px;
+}
+.section-title {
+  font-size: clamp(28px, 4vw, 42px); font-weight: 700;
+  letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 14px;
+}
+.section-sub {
+  font-size: 16px; color: var(--text2); line-height: 1.65;
+  max-width: 520px; margin-bottom: 56px;
+}
+.divider { height: 1px; background: var(--border); max-width: 1100px; margin: 0 auto; }
+
+/* ── Feature grid ── */
+.features-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1px; background: var(--border);
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+}
+.feature-card {
+  background: var(--bg2); padding: 32px; transition: background 0.2s;
+}
+.feature-card:hover { background: var(--surface); }
+.feature-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 18px; font-size: 17px;
+}
+.icon-amber { background: var(--amber-dim); border: 1px solid rgba(245,166,35,0.22); }
+.icon-teal { background: var(--teal-dim); border: 1px solid rgba(62,207,202,0.2); }
+.icon-purple { background: var(--purple-dim); border: 1px solid rgba(124,106,247,0.2); }
+.feature-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.feature-card p { font-size: 13.5px; color: var(--text2); line-height: 1.65; }
+
+/* ── MCP tools table ── */
+.tools-table {
+  width: 100%; border-collapse: collapse;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.tools-table th {
+  background: var(--surface2); text-align: left;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text2);
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+}
+.tools-table td {
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  font-size: 13.5px; vertical-align: top;
+}
+.tools-table tr:last-child td { border-bottom: none; }
+.tools-table tr:hover td { background: var(--surface); }
+.tool-name {
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  color: var(--amber); white-space: nowrap;
+}
+.tool-desc { color: var(--text2); line-height: 1.55; }
+
+/* ── Code block ── */
+.code-block {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.85;
+}
+.code-header {
+  background: var(--surface2); border-bottom: 1px solid var(--border);
+  padding: 10px 18px; display: flex; align-items: center; justify-content: space-between;
+}
+.code-lang { font-size: 11px; color: var(--text2); letter-spacing: 0.06em; }
+.code-body { padding: 22px; }
+.code-body .cmd { color: var(--amber); }
+.code-body .comment { color: var(--muted); }
+.code-body .str { color: var(--teal); }
+.code-body .flag { color: var(--purple); }
+
+/* ── How it works steps ── */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 36px; }
+.step { display: flex; flex-direction: column; gap: 12px; }
+.step-num {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
+  color: var(--amber); background: var(--amber-dim);
+  border: 1px solid rgba(245,166,35,0.22);
+  width: 28px; height: 28px; display: flex; align-items: center;
+  justify-content: center; border-radius: 6px;
+}
+.step h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.step p { font-size: 13.5px; color: var(--text2); line-height: 1.65; }
+
+/* ── Integration cards ── */
+.integrations { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.int-card {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 28px; display: flex; flex-direction: column; gap: 12px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.int-card:hover { border-color: var(--muted); background: var(--surface2); }
+.int-icon {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+}
+.int-card h3 { font-size: 16px; font-weight: 600; }
+.int-card p { font-size: 13.5px; color: var(--text2); line-height: 1.65; }
+.int-link {
+  font-size: 12.5px; color: var(--amber); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.int-link:hover { text-decoration: underline; }
+
+/* ── CTA ── */
+.cta-section {
+  padding: 120px 24px; text-align: center; position: relative; overflow: hidden;
+}
+.cta-section::before {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 300px;
+  background: radial-gradient(ellipse at center, rgba(245,166,35,0.06) 0%, transparent 65%);
+  pointer-events: none;
+}
+.cta-section h2 {
+  font-size: clamp(30px, 5vw, 50px); font-weight: 700; letter-spacing: -0.03em;
+  line-height: 1.12; margin-bottom: 18px;
+  max-width: 540px; margin-left: auto; margin-right: auto;
+}
+.cta-section p { font-size: 16px; color: var(--text2); margin-bottom: 38px; }
+
+/* ── Footer ── */
+footer {
+  border-top: 1px solid var(--border); padding: 32px 40px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+}
+.footer-logo { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #333; }
+.footer-logo span { color: var(--amber); }
+.footer-text { font-size: 12.5px; color: #2a2a2a; }
+
+@media (max-width: 640px) {
+  nav { padding: 0 20px; }
+  .section { padding: 72px 20px; }
+  footer { padding: 28px 20px; flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <a href="#" class="nav-logo">
+    <span class="mem-dot"></span>
+    abhi<span>mem</span>
+  </a>
+  <a href="https://github.com/AbhiPoluri/abhimem" target="_blank" class="nav-cta">
+    Download
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v7M6.5 9L3.5 6M6.5 9L9.5 6M2 11h9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <canvas id="mem-canvas"></canvas>
+  <div class="hero-vignette"></div>
+  <div class="hero-fade"></div>
+  <div class="hero-content">
+    <div class="hero-badge">
+      Powered by <code>llama3.2:3b</code> + <code>nomic-embed-text</code> &middot; Runs fully local
+    </div>
+    <h1>Give Claude Code<br><span class="grad">a memory.</span></h1>
+    <p>A lightweight local memory system that automatically extracts facts from your Claude Code sessions and makes them available in every future session.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/AbhiPoluri/abhimem" target="_blank" class="btn-primary">
+        Download abhimem
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v8M7 10L4 7M7 10L10 7M2 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="#how-it-works" class="btn-secondary">
+        How it works
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5V11.5M7 11.5L3.5 8M7 11.5L10.5 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<div class="divider"></div>
+<section class="section" id="how-it-works">
+  <div class="section-label">How it works</div>
+  <h2 class="section-title">Zero effort. Automatic.</h2>
+  <p class="section-sub">Every Claude Code session ends with a Stop hook that silently extracts, embeds, and stores facts in the background — so Claude remembers without you doing anything.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <h3>Session ends</h3>
+      <p>Claude Code's Stop hook fires at the end of every session. It reads the last 4,000 characters of the transcript JSONL.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <h3>LLM extracts facts</h3>
+      <p><code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--amber)">llama3.2:3b</code> runs locally via Ollama, extracting only facts worth remembering long-term — preferences, decisions, project details.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <h3>Semantic dedup</h3>
+      <p>Each fact is embedded with <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--amber)">nomic-embed-text</code>. Cosine similarity at 0.92 threshold prevents near-duplicates from piling up.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">04</div>
+      <h3>Stored locally</h3>
+      <p>New facts land in <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">~/.abhimem/memory.db</code> — a local SQLite database. No cloud, no API keys, no accounts.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">05</div>
+      <h3>Available next session</h3>
+      <p>A <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">MEMORY.md</code> index loads automatically. Mid-session, Claude calls <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--amber)">recall</code> to semantic-search across all stored memories.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<div class="divider"></div>
+<section class="section">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Smart. Silent. Local.</h2>
+  <p class="section-sub">Everything runs on your machine using open-source models. abhimem never phones home.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon icon-amber">⚡</div>
+      <h3>Non-blocking extraction</h3>
+      <p>The Stop hook exits in milliseconds. Extraction runs in a detached subprocess so it never slows down your Claude Code responses.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon icon-teal">◎</div>
+      <h3>Semantic deduplication</h3>
+      <p>Vector similarity at 0.92 threshold. If a fact is already known, it's skipped. Your memory stays clean, not noisy.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon icon-purple">⊡</div>
+      <h3>MCP tools in Claude</h3>
+      <p>Six tools available in every session: remember, recall, forget, list, extract, and sync to Obsidian.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon icon-amber">⊞</div>
+      <h3>Obsidian sync</h3>
+      <p>Export all memories to a <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">Claude Memory.md</code> in your Obsidian vault. Import notes back in from a Memory Inbox folder.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon icon-teal">✦</div>
+      <h3>notesgraph integration</h3>
+      <p>Memories appear as orange nodes in the notesgraph knowledge graph — visualize how Claude's memory connects to your notes.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon icon-purple">⊕</div>
+      <h3>Pure local stack</h3>
+      <p>SQLite + Ollama + FastMCP. No containers, no paid APIs, no cloud sync. Your data lives in <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">~/.abhimem/</code> forever.</p>
+    </div>
+  </div>
+</section>
+
+<!-- MCP Tools -->
+<div class="divider"></div>
+<section class="section">
+  <div class="section-label">MCP Tools</div>
+  <h2 class="section-title">Six tools. All in Claude.</h2>
+  <p class="section-sub">Once installed, these tools are available in every Claude Code session via the FastMCP server running on <code style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--amber)">localhost:8765</code>.</p>
+  <table class="tools-table">
+    <thead>
+      <tr>
+        <th>Tool</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__remember</span></td>
+        <td class="tool-desc">Store a memory manually. Params: text, category (preference / task / project / person / general), source.</td>
+      </tr>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__recall</span></td>
+        <td class="tool-desc">Semantic search over all memories. Returns top matches with similarity scores. Params: query, limit.</td>
+      </tr>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__list_memories</span></td>
+        <td class="tool-desc">List recent memories, optionally filtered by category. Returns paginated results.</td>
+      </tr>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__forget</span></td>
+        <td class="tool-desc">Delete a specific memory by ID. Use after a daily review to remove junk or outdated facts.</td>
+      </tr>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__sync_to_obsidian</span></td>
+        <td class="tool-desc">Export all memories to <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">Claude Memory.md</code> in your Obsidian vault, grouped by category.</td>
+      </tr>
+      <tr>
+        <td><span class="tool-name">mcp__abhimem__import_from_obsidian</span></td>
+        <td class="tool-desc">Import <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">.md</code> files from your Obsidian <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">Memory Inbox/</code> folder, embedded and stored automatically.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Install -->
+<div class="divider"></div>
+<section class="section">
+  <div class="section-label">Install</div>
+  <h2 class="section-title">One command.</h2>
+  <p class="section-sub">Requires macOS, Python 3.9+, and Ollama. The installer handles everything else — models, LaunchAgent, MCP registration, Stop hook.</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SHELL</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#333;">install.sh</span>
+    </div>
+    <div class="code-body">
+      <div><span class="comment"># clone and install</span></div>
+      <div><span class="cmd">git clone</span> <span class="str">https://github.com/AbhiPoluri/abhimem</span></div>
+      <div><span class="cmd">cd</span> abhimem && <span class="cmd">bash</span> install.sh</div>
+      <br>
+      <div><span class="comment"># restart Claude Code to activate</span></div>
+      <br>
+      <div><span class="comment"># data lives here — always local</span></div>
+      <div><span class="str">~/.abhimem/memory.db</span></div>
+      <br>
+      <div><span class="comment"># MCP server auto-starts on login at</span></div>
+      <div><span class="str">http://127.0.0.1:8765/mcp</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- Integrations -->
+<div class="divider"></div>
+<section class="section">
+  <div class="section-label">Integrations</div>
+  <h2 class="section-title">Works with your tools.</h2>
+  <p class="section-sub">abhimem connects with the apps already in your workflow.</p>
+  <div class="integrations">
+    <div class="int-card">
+      <div class="int-icon icon-amber">◎</div>
+      <h3>notesgraph</h3>
+      <p>Memories appear as orange nodes in the notesgraph knowledge graph alongside your notes. Visualize how Claude's memory connects to what you've written — no config needed.</p>
+      <a href="https://github.com/AbhiPoluri/notesgraph" target="_blank" class="int-link">
+        github.com/AbhiPoluri/notesgraph →
+      </a>
+    </div>
+    <div class="int-card">
+      <div class="int-icon icon-purple">⊞</div>
+      <h3>Obsidian</h3>
+      <p>Sync all memories to a <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">Claude Memory.md</code> file in your vault. Drop notes into <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">Memory Inbox/</code> to import them back into abhimem.</p>
+      <a href="https://obsidian.md" target="_blank" class="int-link">obsidian.md →</a>
+    </div>
+    <div class="int-card">
+      <div class="int-icon icon-teal">⚡</div>
+      <h3>Claude Code</h3>
+      <p>The Stop hook fires after every session. MCP tools are available in every conversation. Memories load at session start via <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">MEMORY.md</code> auto-injection.</p>
+      <a href="https://claude.ai/code" target="_blank" class="int-link">claude.ai/code →</a>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="divider"></div>
+<section class="cta-section">
+  <h2>Claude knows you now.</h2>
+  <p>Install in 60 seconds. Runs silently forever.</p>
+  <a href="https://github.com/AbhiPoluri/abhimem" target="_blank" class="btn-primary" style="font-size:15px;padding:14px 36px;">
+    Download abhimem
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v10M8 12L5 9M8 12L11 9M2 14h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+</section>
+
+<footer>
+  <span class="footer-logo">abhi<span>mem</span></span>
+  <span class="footer-text">local-first &middot; open source &middot; no cloud</span>
+</footer>
+
+<!-- Animated memory particle canvas -->
+<script>
+(function() {
+  const canvas = document.getElementById('mem-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H;
+  let particles = [];
+  let memNodes = [];
+  let animFrame;
+
+  const AMBER = [245, 166, 35];
+  const TEAL = [62, 207, 202];
+  const PURPLE = [124, 106, 247];
+
+  function resize() {
+    W = canvas.offsetWidth;
+    H = canvas.offsetHeight;
+    canvas.width = W * devicePixelRatio;
+    canvas.height = H * devicePixelRatio;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    buildScene();
+  }
+
+  // Memory nodes — fixed positions scattered around center
+  function buildScene() {
+    memNodes = [];
+    const cx = W / 2, cy = H / 2;
+    const r = Math.min(W, H) * 0.28;
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const spread = 0.7 + Math.random() * 0.6;
+      memNodes.push({
+        x: cx + Math.cos(angle) * r * spread,
+        y: cy + Math.sin(angle) * r * spread,
+        r: 3 + Math.random() * 4,
+        color: i % 3 === 0 ? AMBER : i % 3 === 1 ? TEAL : PURPLE,
+        pulse: Math.random() * Math.PI * 2,
+        alpha: 0.4 + Math.random() * 0.5,
+      });
+    }
+
+    // Center "DB" node
+    memNodes.push({ x: cx, y: cy, r: 10, color: AMBER, pulse: 0, alpha: 1, isCenter: true });
+
+    // Reset particles
+    particles = [];
+  }
+
+  // Spawn a particle that travels from edge → random mem node → center
+  function spawnParticle() {
+    const edge = Math.floor(Math.random() * 4);
+    let sx, sy;
+    if (edge === 0) { sx = Math.random() * W; sy = -10; }
+    else if (edge === 1) { sx = W + 10; sy = Math.random() * H; }
+    else if (edge === 2) { sx = Math.random() * W; sy = H + 10; }
+    else { sx = -10; sy = Math.random() * H; }
+
+    const target = memNodes[Math.floor(Math.random() * (memNodes.length - 1))];
+    const center = memNodes[memNodes.length - 1];
+    const color = [AMBER, TEAL, PURPLE][Math.floor(Math.random() * 3)];
+
+    particles.push({
+      x: sx, y: sy,
+      phase: 0, // 0 = going to mem node, 1 = going to center, 2 = done
+      target, center, color,
+      speed: 0.008 + Math.random() * 0.008,
+      size: 1.5 + Math.random() * 2,
+      trail: [],
+    });
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+
+    // Draw connections between mem nodes and center
+    const center = memNodes[memNodes.length - 1];
+    for (let i = 0; i < memNodes.length - 1; i++) {
+      const n = memNodes[i];
+      ctx.beginPath();
+      ctx.moveTo(n.x, n.y);
+      ctx.lineTo(center.x, center.y);
+      ctx.strokeStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.06)`;
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Draw mem nodes
+    for (const n of memNodes) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 0.0015 + n.pulse);
+      if (n.isCenter) {
+        // Center node glow
+        const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 4);
+        grd.addColorStop(0, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.3)`);
+        grd.addColorStop(1, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0)`);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * 4, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        // Core
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${n.alpha})`;
+        ctx.fill();
+        // Pulse ring
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + 4 + pulse * 6, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${0.15 * (1 - pulse)})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * (0.9 + pulse * 0.2), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${n.alpha * (0.6 + pulse * 0.4)})`;
+        ctx.fill();
+      }
+    }
+
+    // Update and draw particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      let tx, ty;
+      if (p.phase === 0) {
+        tx = p.target.x; ty = p.target.y;
+      } else {
+        tx = p.center.x; ty = p.center.y;
+      }
+
+      // Move toward target
+      const dx = tx - p.x, dy = ty - p.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < 8) {
+        if (p.phase === 0) { p.phase = 1; }
+        else { particles.splice(i, 1); continue; }
+      }
+
+      p.x += dx * p.speed * (p.phase === 1 ? 1.5 : 1);
+      p.y += dy * p.speed * (p.phase === 1 ? 1.5 : 1);
+
+      // Trail
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 18) p.trail.shift();
+
+      // Draw trail
+      for (let j = 0; j < p.trail.length; j++) {
+        const a = (j / p.trail.length) * 0.35;
+        ctx.beginPath();
+        ctx.arc(p.trail[j].x, p.trail[j].y, p.size * (j / p.trail.length) * 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${p.color[0]},${p.color[1]},${p.color[2]},${a})`;
+        ctx.fill();
+      }
+
+      // Draw particle head
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.color[0]},${p.color[1]},${p.color[2]},0.9)`;
+      ctx.fill();
+    }
+
+    // Spawn new particles
+    if (particles.length < 30 && Math.random() < 0.08) spawnParticle();
+  }
+
+  function loop(t) {
+    draw(t);
+    animFrame = requestAnimationFrame(loop);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
