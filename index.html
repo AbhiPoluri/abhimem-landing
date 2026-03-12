@@ -75,36 +75,21 @@ nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
 
 /* ── Hero ── */
 .hero {
-  position: relative; min-height: 100dvh;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  overflow: hidden; padding: 58px 24px 0;
+  min-height: 100dvh;
+  display: flex; align-items: center;
+  padding: 80px 60px 60px; gap: 60px;
+  max-width: 1180px; margin: 0 auto; overflow: hidden;
 }
-#mem-canvas {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  z-index: 0;
-}
-.hero-vignette {
-  position: absolute; inset: 0;
-  background: radial-gradient(ellipse 70% 65% at 50% 50%, transparent 20%, rgba(8,8,8,0.7) 75%, var(--bg) 100%);
-  z-index: 1; pointer-events: none;
-}
-.hero-fade {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 200px;
-  background: linear-gradient(to bottom, transparent, var(--bg));
-  z-index: 1; pointer-events: none;
-}
-.hero-content {
-  position: relative; z-index: 2;
-  text-align: center; display: flex; flex-direction: column;
-  align-items: center; pointer-events: none;
+.hero-left {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
 }
 .hero-badge {
   display: inline-flex; align-items: center; gap: 7px;
   background: rgba(11,11,11,0.75); border: 1px solid var(--border2);
   backdrop-filter: blur(8px); border-radius: 100px;
   padding: 5px 14px; font-size: 11.5px; font-weight: 500; color: var(--text2);
-  margin-bottom: 28px; letter-spacing: 0.02em; pointer-events: auto;
+  margin-bottom: 28px; letter-spacing: 0.02em;
 }
 .hero-badge code {
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -112,21 +97,18 @@ nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
   padding: 1px 6px; border-radius: 3px;
 }
 .hero h1 {
-  font-size: clamp(42px, 8vw, 76px); font-weight: 700;
-  line-height: 1.07; letter-spacing: -0.045em; max-width: 820px; margin-bottom: 22px;
+  font-size: clamp(36px, 4.2vw, 62px); font-weight: 700;
+  line-height: 1.07; letter-spacing: -0.045em; margin-bottom: 22px;
 }
 .hero h1 .grad {
   background: linear-gradient(135deg, var(--amber) 0%, #ff8c42 100%);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 .hero p {
-  font-size: 17px; line-height: 1.65; color: var(--text2);
-  max-width: 500px; margin-bottom: 38px;
+  font-size: 16px; line-height: 1.65; color: var(--text2);
+  max-width: 440px; margin-bottom: 36px;
 }
-.hero-actions {
-  display: flex; gap: 12px; flex-wrap: wrap;
-  justify-content: center; pointer-events: auto; margin-bottom: 60px;
-}
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .btn-primary {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--amber); color: #000; text-decoration: none;
@@ -144,6 +126,12 @@ nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
   transition: border-color 0.15s, color 0.15s, transform 0.15s;
 }
 .btn-secondary:hover { border-color: var(--muted); color: var(--text); transform: translateY(-2px); }
+#brain-wrap {
+  width: clamp(280px, 38vw, 460px);
+  height: clamp(280px, 38vw, 460px);
+  flex-shrink: 0;
+}
+#brain-canvas { width: 100%; height: 100%; display: block; }
 
 /* ── Pipeline diagram ── */
 .pipeline {
@@ -342,6 +330,16 @@ footer {
 .footer-logo span { color: var(--amber); }
 .footer-text { font-size: 12.5px; color: #2a2a2a; }
 
+@media (max-width: 860px) {
+  .hero {
+    flex-direction: column; align-items: center;
+    padding: 90px 24px 50px; gap: 36px; text-align: center;
+    max-width: 100%;
+  }
+  .hero-left { align-items: center; }
+  .hero-actions { justify-content: center; }
+  #brain-wrap { width: min(340px, 88vw); height: min(340px, 88vw); }
+}
 @media (max-width: 640px) {
   nav { padding: 0 20px; }
   .section { padding: 72px 20px; }
@@ -359,6 +357,7 @@ footer {
   transform: translateY(0);
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
@@ -376,10 +375,7 @@ footer {
 
 <!-- Hero -->
 <section class="hero">
-  <canvas id="mem-canvas"></canvas>
-  <div class="hero-vignette"></div>
-  <div class="hero-fade"></div>
-  <div class="hero-content">
+  <div class="hero-left">
     <div class="hero-badge">
       Powered by <code>llama3.2:3b</code> + <code>nomic-embed-text</code> &middot; Runs fully local
     </div>
@@ -395,6 +391,9 @@ footer {
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5V11.5M7 11.5L3.5 8M7 11.5L10.5 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </a>
     </div>
+  </div>
+  <div id="brain-wrap">
+    <canvas id="brain-canvas"></canvas>
   </div>
 </section>
 
@@ -594,199 +593,147 @@ footer {
 <!-- Brain animation -->
 <script>
 (function() {
-  const canvas = document.getElementById('mem-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  let W, H, time = 0, frame = 0, mouseX = -9999, mouseY = -9999;
+  if (typeof THREE === 'undefined') return;
+  const wrap = document.getElementById('brain-wrap');
+  const canvas = document.getElementById('brain-canvas');
+  if (!canvas || !wrap) return;
 
-  const isMobile = window.innerWidth < 768;
-  const NODE_COUNT = isMobile ? 45 : 80;
-  const COLORS = [[245,166,35],[62,207,202],[124,106,247],[80,200,120],[100,160,240]];
-  let nodes = [], edges = [], signals = [];
+  // Scene & camera
+  const scene = new THREE.Scene();
+  const group = new THREE.Group();
+  scene.add(group);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+  camera.position.set(0, 0.3, 3.6);
+  camera.lookAt(0, 0, 0);
 
-  // ── Brain bounds ─────────────────────────────────────────────────────────
-  function bb() {
-    const cx = W / 2, cy = H * 0.46;
-    const bw = Math.min(W * 0.36, H * 0.32);
-    return { cx, cy, bw, bh: bw * 0.78 };
+  // Renderer
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0x0a0a22, 8));
+  const L1 = new THREE.PointLight(0xf5a623, 3.5, 12);
+  L1.position.set(2.5, 2, 2.5);
+  scene.add(L1);
+  const L2 = new THREE.PointLight(0x3ecfca, 1.8, 10);
+  L2.position.set(-2.5, -1.5, 1);
+  scene.add(L2);
+
+  // Brain geometry — deform sphere into brain shape
+  const geo = new THREE.SphereGeometry(1.0, 80, 80);
+  const pa = geo.attributes.position;
+  for (let i = 0; i < pa.count; i++) {
+    const x0 = pa.getX(i), y0 = pa.getY(i), z0 = pa.getZ(i);
+    const len = Math.sqrt(x0*x0 + y0*y0 + z0*z0);
+    const nx = x0/len, ny = y0/len, nz = z0/len;
+    const theta = Math.atan2(nz, nx);
+    const phi = Math.acos(Math.max(-1, Math.min(1, ny)));
+    // Multi-octave folds
+    let f = 0;
+    f += 0.11 * Math.sin(7*theta)       * Math.sin(3.5*phi);
+    f += 0.065 * Math.sin(13*theta+0.9) * Math.sin(6.5*phi+0.4);
+    f += 0.038 * Math.cos(19*theta+1.8) * Math.cos(9.5*phi+1.1);
+    f += 0.020 * Math.sin(27*theta+2.5) * Math.sin(13*phi+0.8);
+    const r = 1.0 + f;
+    // Shape: wider, flatter
+    let x = nx * r * 1.38;
+    let y = ny * r * 0.86;
+    let z = nz * r * 1.06;
+    // Longitudinal fissure (groove top-center front-to-back)
+    y -= Math.exp(-(nx*nx) / 0.09) * Math.max(0, ny) * 0.26;
+    pa.setXYZ(i, x, y, z);
   }
+  geo.computeVertexNormals();
 
-  // ── Brain outline path ───────────────────────────────────────────────────
-  function traceBrain() {
-    const { cx, cy, bw, bh } = bb();
-    ctx.beginPath();
-    for (let i = 0; i <= 120; i++) {
-      const t = (i / 120) * Math.PI * 2;
-      const s = Math.exp(-(Math.cos(t) ** 2) * 4.5) * 0.14;
-      const b = 1 + 0.055 * Math.sin(7*t) + 0.04 * Math.sin(11*t+0.5) + 0.022 * Math.cos(17*t);
-      const lw = 1 + 0.04 * Math.abs(Math.sin(t));
-      const x = cx + bw * (1 - s) * b * lw * Math.cos(t);
-      const y = cy + bh * (1 - s * 0.7) * b * Math.sin(t);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.closePath();
+  // Brain surface mesh — dark semi-transparent
+  group.add(new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+    color: 0x090918, emissive: 0x04040e, specular: 0x2a2a50, shininess: 25,
+    transparent: true, opacity: 0.45, depthWrite: false,
+  })));
+  // Subtle wireframe overlay
+  group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color: 0xf5a623, wireframe: true,
+    transparent: true, opacity: 0.03, depthWrite: false,
+  })));
+
+  // Sample nodes evenly from brain surface
+  const NODE_COUNT = 38;
+  const nodePos = [];
+  const stride = Math.floor(pa.count / NODE_COUNT);
+  for (let i = 0; i < NODE_COUNT; i++) {
+    const idx = (i * stride + Math.floor(stride / 3)) % pa.count;
+    nodePos.push(new THREE.Vector3(pa.getX(idx), pa.getY(idx), pa.getZ(idx)));
   }
+  const NCOLS = [0xf5a623, 0x3ecfca, 0x7c6af7, 0xf5a623, 0x3ecfca];
+  nodePos.forEach((p, i) => {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.032, 8, 8),
+      new THREE.MeshBasicMaterial({ color: NCOLS[i % NCOLS.length] })
+    );
+    mesh.position.copy(p);
+    group.add(mesh);
+  });
 
-  // ── Build network ────────────────────────────────────────────────────────
-  function buildNetwork() {
-    nodes = []; edges = []; signals = [];
-    const { cx, cy, bw, bh } = bb();
-    let tries = 0;
-    while (nodes.length < NODE_COUNT && tries++ < NODE_COUNT * 20) {
-      const x = cx + (Math.random() * 2 - 1) * bw * 0.88;
-      const y = cy + (Math.random() * 2 - 1) * bh * 0.88;
-      const nx = (x - cx) / bw, ny = (y - cy) / bh;
-      if (nx * nx + ny * ny > 0.82) continue;
-      nodes.push({
-        x, y, baseX: x, baseY: y,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        r: 3 + Math.random() * 4,
-        pulse: Math.random() * Math.PI * 2,
-        dx: (Math.random() - 0.5) * 0.3,
-        dy: (Math.random() - 0.5) * 0.25,
-      });
-    }
-    const THRESH = Math.min(bw, bh) * 0.42;
-    for (let i = 0; i < nodes.length; i++) {
-      let c = 0;
-      for (let j = i + 1; j < nodes.length && c < 4; j++) {
-        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < THRESH) {
-          edges.push({ a: i, b: j }); c++;
-        }
+  // Edges between nearby nodes
+  const edgeList = [];
+  const edgePts = [];
+  for (let i = 0; i < nodePos.length; i++) {
+    let c = 0;
+    for (let j = i+1; j < nodePos.length && c < 3; j++) {
+      if (nodePos[i].distanceTo(nodePos[j]) < 0.72) {
+        edgeList.push([i, j]);
+        edgePts.push(nodePos[i].clone(), nodePos[j].clone());
+        c++;
       }
     }
   }
-
-  // ── Draw ─────────────────────────────────────────────────────────────────
-  function draw() {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(8,8,8,0.20)';
-    ctx.fillRect(0, 0, W, H);
-
-    // Edges
-    for (const e of edges) {
-      const a = nodes[e.a], b = nodes[e.b];
-      const [r, g, bl] = a.color;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = `rgba(${r},${g},${bl},0.13)`;
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    }
-
-    // Signals
-    ctx.globalCompositeOperation = 'lighter';
-    for (const s of signals) {
-      const e = edges[s.edgeIdx];
-      if (!e) continue;
-      const a = nodes[e.a], b = nodes[e.b];
-      const t = s.reverse ? 1 - s.t : s.t;
-      const [r, g, bl] = s.col;
-      ctx.beginPath();
-      ctx.arc(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${bl},0.9)`;
-      ctx.fill();
-    }
-
-    // Nodes
-    for (const n of nodes) {
-      const [r, g, bl] = n.color;
-      const pulse = 0.5 + 0.5 * Math.sin(time * 1.8 + n.pulse);
-      const nr = n.r * (1 + pulse * 0.2);
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, nr, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${bl},0.65)`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, nr * 0.45, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,0.55)`;
-      ctx.fill();
-    }
-    ctx.globalCompositeOperation = 'source-over';
-
-    // Brain outline — draw path 4x for layered glow (no shadowBlur)
-    traceBrain(); ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(245,166,35,0.06)'; ctx.stroke();
-    traceBrain(); ctx.lineWidth = 6;  ctx.strokeStyle = 'rgba(245,166,35,0.14)'; ctx.stroke();
-    traceBrain(); ctx.lineWidth = 2;  ctx.strokeStyle = 'rgba(245,166,35,0.45)'; ctx.stroke();
-    traceBrain(); ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(245,166,35,0.85)'; ctx.stroke();
-
-    // Central sulcus
-    const { cx, cy, bh } = bb();
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - bh * 0.8);
-    ctx.lineTo(cx, cy + bh * 0.8);
-    ctx.strokeStyle = 'rgba(245,166,35,0.10)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+  if (edgePts.length) {
+    group.add(new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(edgePts),
+      new THREE.LineBasicMaterial({ color: 0x3ecfca, transparent: true, opacity: 0.22 })
+    ));
   }
 
-  // ── Update ────────────────────────────────────────────────────────────────
-  function update() {
-    time += 0.012; frame++;
-
-    // Gentle node drift
-    for (const n of nodes) {
-      n.x = n.baseX + Math.sin(time * 0.4 + n.pulse) * n.dx * 18;
-      n.y = n.baseY + Math.cos(time * 0.35 + n.pulse * 1.2) * n.dy * 14;
-    }
-
-    // Fire signals
-    if (frame % 20 === 0 && edges.length > 0) {
-      const ei = Math.floor(Math.random() * edges.length);
-      signals.push({ edgeIdx: ei, t: 0, speed: 0.008 + Math.random() * 0.008,
-                     col: nodes[edges[ei].a].color, reverse: Math.random() < 0.5 });
-    }
-
-    // Cascade
-    for (let i = signals.length - 1; i >= 0; i--) {
-      signals[i].t += signals[i].speed;
-      if (signals[i].t >= 1) {
-        const srcEdge = edges[signals[i].edgeIdx];
-        const end = signals[i].reverse ? srcEdge.a : srcEdge.b;
-        if (Math.random() < 0.35) {
-          for (let ei = 0; ei < edges.length; ei++) {
-            const e = edges[ei];
-            if ((e.a === end || e.b === end) && ei !== signals[i].edgeIdx) {
-              signals.push({ edgeIdx: ei, t: 0, speed: 0.009 + Math.random() * 0.007,
-                             col: nodes[end].color, reverse: e.b === end });
-              break;
-            }
-          }
-        }
-        signals.splice(i, 1);
-      }
-    }
-    if (signals.length > 25) signals.splice(0, signals.length - 25);
+  // Signal pulses along edges
+  const SIG_COUNT = 7;
+  const sigMeshes = [], signals = [];
+  const sigGeo = new THREE.SphereGeometry(0.042, 8, 8);
+  for (let i = 0; i < SIG_COUNT && edgeList.length; i++) {
+    const mesh = new THREE.Mesh(sigGeo,
+      new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? 0xf5a623 : 0x3ecfca }));
+    group.add(mesh);
+    sigMeshes.push(mesh);
+    signals.push({ edge: edgeList[Math.floor(Math.random() * edgeList.length)],
+                   t: Math.random(), speed: 0.007 + Math.random() * 0.009 });
   }
-
-  function loop() { update(); draw(); requestAnimationFrame(loop); }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    W = canvas.offsetWidth || window.innerWidth;
-    H = canvas.offsetHeight || window.innerHeight;
-    canvas.width = Math.round(W * dpr);
-    canvas.height = Math.round(H * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset + scale (no accumulation)
-    buildNetwork();
+    const w = wrap.offsetWidth || 400, h = wrap.offsetHeight || 400;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   }
 
-  canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
-  });
-  canvas.addEventListener('mouseleave', () => { mouseX = mouseY = -9999; });
+  let rot = 0;
+  function animate() {
+    requestAnimationFrame(animate);
+    rot += 0.004;
+    group.rotation.y = rot;
+    group.rotation.x = Math.sin(rot * 0.25) * 0.06;
+    signals.forEach((sig, i) => {
+      sig.t += sig.speed;
+      if (sig.t > 1) { sig.t -= 1; sig.edge = edgeList[Math.floor(Math.random() * edgeList.length)]; }
+      sigMeshes[i].position.lerpVectors(nodePos[sig.edge[0]], nodePos[sig.edge[1]], sig.t);
+    });
+    renderer.render(scene, camera);
+  }
 
   window.addEventListener('resize', resize);
-
-  // Wait for full layout before reading canvas dimensions
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { resize(); requestAnimationFrame(loop); });
-  } else {
-    resize(); requestAnimationFrame(loop);
-  }
+    document.addEventListener('DOMContentLoaded', () => { resize(); animate(); });
+  } else { resize(); animate(); }
+
 })();
 </script>
 
