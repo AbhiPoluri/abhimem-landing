@@ -618,7 +618,7 @@ footer {
     ctx.beginPath();
     for (let i = 0; i <= 120; i++) {
       const t = (i / 120) * Math.PI * 2;
-      const s = Math.exp(-Math.cos(t) ** 2 * 4.5) * 0.14;
+      const s = Math.exp(-(Math.cos(t) ** 2) * 4.5) * 0.14;
       const b = 1 + 0.055 * Math.sin(7*t) + 0.04 * Math.sin(11*t+0.5) + 0.022 * Math.cos(17*t);
       const lw = 1 + 0.04 * Math.abs(Math.sin(t));
       const x = cx + bw * (1 - s) * b * lw * Math.cos(t);
