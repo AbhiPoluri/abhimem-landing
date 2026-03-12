@@ -591,147 +591,92 @@ footer {
   <span class="footer-text">local-first &middot; open source &middot; no cloud</span>
 </footer>
 
-<!-- Memory graph hero animation -->
+<!-- Brain animation -->
 <script>
 (function() {
   const canvas = document.getElementById('mem-canvas');
-  const ctx = canvas.getContext('2d', { alpha: false });
-  let W, H;
-  let time = 0;
-  let frame = 0;
-  let mouseX = -9999, mouseY = -9999;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  let W, H, time = 0, frame = 0, mouseX = -9999, mouseY = -9999;
 
-  // ── Device detection ──────────────────────────────────────────────────────
   const isMobile = window.innerWidth < 768;
-  const NODE_COUNT = isMobile ? 50 : 90;
+  const NODE_COUNT = isMobile ? 45 : 80;
+  const COLORS = [[245,166,35],[62,207,202],[124,106,247],[80,200,120],[100,160,240]];
+  let nodes = [], edges = [], signals = [];
 
-  // ── 3D state ──────────────────────────────────────────────────────────────
-  let angleY = 0;
-  const FOV = 380;
-  const CAM_Z = 500;
-  const ROT_SPEED = 0.003;
-
-  // Node colors
-  const COLORS = [
-    [245, 166,  35],  // amber
-    [ 62, 207, 202],  // teal
-    [124, 106, 247],  // purple
-    [ 80, 200, 120],  // green
-    [100, 160, 240],  // blue
-  ];
-
-  let nodes = [];
-  let edges = [];
-  let signals = [];
-
-  // ── Trace brain outline onto ctx (called twice per frame — cheap) ──────────
-  function traceBrain() {
+  // ── Brain bounds ─────────────────────────────────────────────────────────
+  function bb() {
     const cx = W / 2, cy = H * 0.46;
-    const bw = Math.min(W * 0.38, H * 0.34);
-    const bh = bw * 0.80;
+    const bw = Math.min(W * 0.36, H * 0.32);
+    return { cx, cy, bw, bh: bw * 0.78 };
+  }
+
+  // ── Brain outline path ───────────────────────────────────────────────────
+  function traceBrain() {
+    const { cx, cy, bw, bh } = bb();
     ctx.beginPath();
-    const N = 150;
-    for (let i = 0; i <= N; i++) {
-      const theta = (i / N) * Math.PI * 2;
-      const sulcus = Math.exp(-Math.cos(theta) ** 2 * 4.5) * 0.15;
-      const bumps = 1 + 0.055 * Math.sin(7 * theta) + 0.038 * Math.sin(11 * theta + 0.6) + 0.022 * Math.cos(17 * theta);
-      const lobeW = 1 + 0.04 * Math.abs(Math.sin(theta));
-      const rx = bw * (1 - sulcus) * bumps * lobeW;
-      const ry = bh * (1 - sulcus * 0.7) * bumps;
-      const x = cx + rx * Math.cos(theta);
-      const y = cy + ry * Math.sin(theta);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    for (let i = 0; i <= 120; i++) {
+      const t = (i / 120) * Math.PI * 2;
+      const s = Math.exp(-Math.cos(t) ** 2 * 4.5) * 0.14;
+      const b = 1 + 0.055 * Math.sin(7*t) + 0.04 * Math.sin(11*t+0.5) + 0.022 * Math.cos(17*t);
+      const lw = 1 + 0.04 * Math.abs(Math.sin(t));
+      const x = cx + bw * (1 - s) * b * lw * Math.cos(t);
+      const y = cy + bh * (1 - s * 0.7) * b * Math.sin(t);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.closePath();
   }
 
-  // ── Build 3D neural network ───────────────────────────────────────────────
+  // ── Build network ────────────────────────────────────────────────────────
   function buildNetwork() {
-    nodes = [];
-    edges = [];
-    signals = [];
-
-    const scale = Math.min(W, H) * 0.30;
-
-    // Distribute nodes inside a brain-shaped ellipsoid
-    let attempts = 0;
-    while (nodes.length < NODE_COUNT && attempts < NODE_COUNT * 10) {
-      attempts++;
-      const x = (Math.random() * 2 - 1);
-      const y = (Math.random() * 2 - 1) * 0.72;
-      const z = (Math.random() * 2 - 1) * 0.80;
-      // Reject outside ellipsoid
-      if (x * x + (y / 0.72) ** 2 + (z / 0.80) ** 2 > 0.92) continue;
-      // Reject the central sulcus region (thin strip along y-axis)
-      if (Math.abs(z) < 0.06 && Math.abs(y) < 0.5) continue;
-
+    nodes = []; edges = []; signals = [];
+    const { cx, cy, bw, bh } = bb();
+    let tries = 0;
+    while (nodes.length < NODE_COUNT && tries++ < NODE_COUNT * 20) {
+      const x = cx + (Math.random() * 2 - 1) * bw * 0.88;
+      const y = cy + (Math.random() * 2 - 1) * bh * 0.88;
+      const nx = (x - cx) / bw, ny = (y - cy) / bh;
+      if (nx * nx + ny * ny > 0.82) continue;
       nodes.push({
-        ox: x * scale, oy: y * scale, oz: z * scale,
-        px: 0, py: 0, depth: 0,
-        r: 3.5 + Math.random() * 4,
+        x, y, baseX: x, baseY: y,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        r: 3 + Math.random() * 4,
         pulse: Math.random() * Math.PI * 2,
+        dx: (Math.random() - 0.5) * 0.3,
+        dy: (Math.random() - 0.5) * 0.25,
       });
     }
-
-    // Edges: connect nearby nodes (distance threshold)
-    const THRESH = scale * 0.52;
+    const THRESH = Math.min(bw, bh) * 0.42;
     for (let i = 0; i < nodes.length; i++) {
-      let edgeCount = 0;
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i], b = nodes[j];
-        const d = Math.hypot(a.ox - b.ox, a.oy - b.oy, a.oz - b.oz);
-        if (d < THRESH && edgeCount < 5) {
-          edges.push({ a: i, b: j });
-          edgeCount++;
+      let c = 0;
+      for (let j = i + 1; j < nodes.length && c < 4; j++) {
+        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < THRESH) {
+          edges.push({ a: i, b: j }); c++;
         }
       }
     }
   }
 
-  // ── Project node to screen ────────────────────────────────────────────────
-  function projectNode(n) {
-    // Y-axis rotation
-    const cosY = Math.cos(angleY), sinY = Math.sin(angleY);
-    const rx = n.ox * cosY + n.oz * sinY;
-    const ry = n.oy;
-    const rz = -n.ox * sinY + n.oz * cosY;
-    // Gentle X-axis tilt (nod)
-    const tilt = Math.sin(time * 0.18) * 0.07;
-    const cosX = Math.cos(tilt), sinX = Math.sin(tilt);
-    const ry2 = ry * cosX - rz * sinX;
-    const rz2 = ry * sinX + rz * cosX;
-    // Perspective
-    const s = FOV / (FOV + rz2 + CAM_Z);
-    n.px = W / 2 + rx * s;
-    n.py = H * 0.46 + ry2 * s;
-    n.depth = s; // ~0.33–0.64; larger = closer
-  }
-
-  // ── Draw ──────────────────────────────────────────────────────────────────
+  // ── Draw ─────────────────────────────────────────────────────────────────
   function draw() {
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#080808';
+    ctx.fillStyle = 'rgba(8,8,8,0.20)';
     ctx.fillRect(0, 0, W, H);
-
-    // Project all nodes
-    for (const n of nodes) projectNode(n);
 
     // Edges
     for (const e of edges) {
       const a = nodes[e.a], b = nodes[e.b];
-      const depth = (a.depth + b.depth) * 0.5;
       const [r, g, bl] = a.color;
       ctx.beginPath();
-      ctx.moveTo(a.px, a.py);
-      ctx.lineTo(b.px, b.py);
-      ctx.strokeStyle = `rgba(${r},${g},${bl},${0.12 + depth * 0.25})`;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = `rgba(${r},${g},${bl},0.13)`;
       ctx.lineWidth = 0.8;
       ctx.stroke();
     }
 
-    // Signals (additive = free glow)
+    // Signals
     ctx.globalCompositeOperation = 'lighter';
     for (const s of signals) {
       const e = edges[s.edgeIdx];
@@ -740,62 +685,38 @@ footer {
       const t = s.reverse ? 1 - s.t : s.t;
       const [r, g, bl] = s.col;
       ctx.beginPath();
-      ctx.arc(
-        a.px + (b.px - a.px) * t,
-        a.py + (b.py - a.py) * t,
-        3, 0, Math.PI * 2
-      );
+      ctx.arc(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r},${g},${bl},0.9)`;
+      ctx.fill();
+    }
+
+    // Nodes
+    for (const n of nodes) {
+      const [r, g, bl] = n.color;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 1.8 + n.pulse);
+      const nr = n.r * (1 + pulse * 0.2);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, nr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},0.65)`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, nr * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,0.55)`;
       ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    // Nodes (back-to-front)
-    const order = nodes.map((_, i) => i).sort((a, b) => nodes[a].depth - nodes[b].depth);
-    for (const ni of order) {
-      const n = nodes[ni];
-      const [r, g, bl] = n.color;
-      const pulse = 0.5 + 0.5 * Math.sin(time * 1.6 + n.pulse);
-      const nodeR = n.r * (1 + pulse * 0.15);
-      const alpha = 0.5 + 0.5 * n.depth;
-
-      // Additive glow core
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.beginPath();
-      ctx.arc(n.px, n.py, nodeR, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha * 0.6})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(n.px, n.py, nodeR * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${alpha * 0.55})`;
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-
-    // Brain outline — amber glow on top of nodes
-    traceBrain();
-    ctx.lineWidth = 14;
-    ctx.strokeStyle = 'rgba(245,166,35,0.06)';
-    ctx.stroke();
-    traceBrain();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = 'rgba(245,166,35,0.14)';
-    ctx.stroke();
-    traceBrain();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(245,166,35,0.45)';
-    ctx.stroke();
-    traceBrain();
-    ctx.lineWidth = 0.8;
-    ctx.strokeStyle = 'rgba(245,166,35,0.80)';
-    ctx.stroke();
+    // Brain outline — draw path 4x for layered glow (no shadowBlur)
+    traceBrain(); ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(245,166,35,0.06)'; ctx.stroke();
+    traceBrain(); ctx.lineWidth = 6;  ctx.strokeStyle = 'rgba(245,166,35,0.14)'; ctx.stroke();
+    traceBrain(); ctx.lineWidth = 2;  ctx.strokeStyle = 'rgba(245,166,35,0.45)'; ctx.stroke();
+    traceBrain(); ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(245,166,35,0.85)'; ctx.stroke();
 
     // Central sulcus
-    const cy = H * 0.46;
-    const bh = Math.min(W * 0.38, H * 0.34) * 0.80;
+    const { cx, cy, bh } = bb();
     ctx.beginPath();
-    ctx.moveTo(W / 2, cy - bh * 0.82);
-    ctx.lineTo(W / 2, cy + bh * 0.82);
+    ctx.moveTo(cx, cy - bh * 0.8);
+    ctx.lineTo(cx, cy + bh * 0.8);
     ctx.strokeStyle = 'rgba(245,166,35,0.10)';
     ctx.lineWidth = 1;
     ctx.stroke();
@@ -803,92 +724,69 @@ footer {
 
   // ── Update ────────────────────────────────────────────────────────────────
   function update() {
-    time += 0.012;
-    frame++;
-    angleY += ROT_SPEED;
+    time += 0.012; frame++;
 
-    // Fire synapse signal every 22 frames
-    if (frame % 22 === 0 && edges.length > 0) {
-      const ei = Math.floor(Math.random() * edges.length);
-      signals.push({
-        edgeIdx: ei, t: 0,
-        speed: 0.008 + Math.random() * 0.009,
-        col: nodes[edges[ei].a].color,
-        reverse: Math.random() < 0.5,
-      });
+    // Gentle node drift
+    for (const n of nodes) {
+      n.x = n.baseX + Math.sin(time * 0.4 + n.pulse) * n.dx * 18;
+      n.y = n.baseY + Math.cos(time * 0.35 + n.pulse * 1.2) * n.dy * 14;
     }
 
-    // Cascade: signal completion triggers a neighbor signal
+    // Fire signals
+    if (frame % 20 === 0 && edges.length > 0) {
+      const ei = Math.floor(Math.random() * edges.length);
+      signals.push({ edgeIdx: ei, t: 0, speed: 0.008 + Math.random() * 0.008,
+                     col: nodes[edges[ei].a].color, reverse: Math.random() < 0.5 });
+    }
+
+    // Cascade
     for (let i = signals.length - 1; i >= 0; i--) {
       signals[i].t += signals[i].speed;
       if (signals[i].t >= 1) {
-        // Occasionally cascade to a neighboring edge
-        if (Math.random() < 0.4 && edges.length > 0) {
-          const srcEdge = edges[signals[i].edgeIdx];
-          const endNode = signals[i].reverse ? srcEdge.a : srcEdge.b;
-          // Find edges connected to endNode
-          const candidates = edges
-            .map((e, idx) => ({ e, idx }))
-            .filter(({ e }) => (e.a === endNode || e.b === endNode) && e !== srcEdge);
-          if (candidates.length > 0) {
-            const next = candidates[Math.floor(Math.random() * candidates.length)];
-            signals.push({
-              edgeIdx: next.idx, t: 0,
-              speed: 0.009 + Math.random() * 0.008,
-              col: nodes[endNode].color,
-              reverse: next.e.b === endNode,
-            });
+        const srcEdge = edges[signals[i].edgeIdx];
+        const end = signals[i].reverse ? srcEdge.a : srcEdge.b;
+        if (Math.random() < 0.35) {
+          for (let ei = 0; ei < edges.length; ei++) {
+            const e = edges[ei];
+            if ((e.a === end || e.b === end) && ei !== signals[i].edgeIdx) {
+              signals.push({ edgeIdx: ei, t: 0, speed: 0.009 + Math.random() * 0.007,
+                             col: nodes[end].color, reverse: e.b === end });
+              break;
+            }
           }
         }
         signals.splice(i, 1);
       }
     }
-
-    // Cap signals
-    if (signals.length > 30) signals.splice(0, signals.length - 30);
+    if (signals.length > 25) signals.splice(0, signals.length - 25);
   }
 
-  // ── Loop ──────────────────────────────────────────────────────────────────
   function loop() { update(); draw(); requestAnimationFrame(loop); }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1 : 1.5);
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    ctx.scale(dpr, dpr);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    W = canvas.offsetWidth || window.innerWidth;
+    H = canvas.offsetHeight || window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset + scale (no accumulation)
     buildNetwork();
   }
 
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
+    mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
   });
-  canvas.addEventListener('mouseleave', () => { mouseX = -9999; mouseY = -9999; });
-  canvas.addEventListener('touchstart', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.touches[0].clientX - rect.left;
-    mouseY = e.touches[0].clientY - rect.top;
-    // Fire burst of signals on tap
-    for (let ni = 0; ni < nodes.length; ni++) {
-      if (Math.hypot(mouseX - nodes[ni].px, mouseY - nodes[ni].py) < 55) {
-        for (let ei = 0; ei < edges.length; ei++) {
-          const e = edges[ei];
-          if (e.a === ni || e.b === ni) {
-            signals.push({ edgeIdx: ei, t: 0, speed: 0.014,
-                           col: nodes[ni].color, reverse: e.b === ni });
-          }
-        }
-        break;
-      }
-    }
-  }, { passive: true });
+  canvas.addEventListener('mouseleave', () => { mouseX = mouseY = -9999; });
 
   window.addEventListener('resize', resize);
-  resize();
-  requestAnimationFrame(loop);
+
+  // Wait for full layout before reading canvas dimensions
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { resize(); requestAnimationFrame(loop); });
+  } else {
+    resize(); requestAnimationFrame(loop);
+  }
 </script>
 
 <!-- Scroll reveal -->
