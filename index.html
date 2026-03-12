@@ -715,11 +715,6 @@ footer {
     // Project all nodes
     for (const n of nodes) projectNode(n);
 
-    // Draw neural network clipped inside brain shape
-    ctx.save();
-    traceBrain();
-    ctx.clip();
-
     // Edges
     for (const e of edges) {
       const a = nodes[e.a], b = nodes[e.b];
@@ -728,8 +723,8 @@ footer {
       ctx.beginPath();
       ctx.moveTo(a.px, a.py);
       ctx.lineTo(b.px, b.py);
-      ctx.strokeStyle = `rgba(${r},${g},${bl},${depth * 0.28})`;
-      ctx.lineWidth = 0.8 * depth * 1.8;
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${0.12 + depth * 0.25})`;
+      ctx.lineWidth = 0.8;
       ctx.stroke();
     }
 
@@ -740,15 +735,14 @@ footer {
       if (!e) continue;
       const a = nodes[e.a], b = nodes[e.b];
       const t = s.reverse ? 1 - s.t : s.t;
-      const depth = a.depth + (b.depth - a.depth) * t;
       const [r, g, bl] = s.col;
       ctx.beginPath();
       ctx.arc(
         a.px + (b.px - a.px) * t,
         a.py + (b.py - a.py) * t,
-        3.5 * depth, 0, Math.PI * 2
+        3, 0, Math.PI * 2
       );
-      ctx.fillStyle = `rgba(${r},${g},${bl},0.95)`;
+      ctx.fillStyle = `rgba(${r},${g},${bl},0.9)`;
       ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -759,55 +753,47 @@ footer {
       const n = nodes[ni];
       const [r, g, bl] = n.color;
       const pulse = 0.5 + 0.5 * Math.sin(time * 1.6 + n.pulse);
-      const nodeR = n.r * n.depth * (1 + pulse * 0.2);
-      const alpha = 0.35 + 0.65 * n.depth;
+      const nodeR = n.r * (1 + pulse * 0.15);
+      const alpha = 0.5 + 0.5 * n.depth;
 
-      // Halo (source-over, soft radial)
-      const halo = ctx.createRadialGradient(n.px, n.py, 0, n.px, n.py, nodeR * 3.5);
-      halo.addColorStop(0, `rgba(${r},${g},${bl},${alpha * 0.18})`);
-      halo.addColorStop(1, `rgba(${r},${g},${bl},0)`);
-      ctx.beginPath();
-      ctx.arc(n.px, n.py, nodeR * 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = halo;
-      ctx.fill();
-
-      // Core (additive = glow without shadowBlur)
+      // Additive glow core
       ctx.globalCompositeOperation = 'lighter';
       ctx.beginPath();
       ctx.arc(n.px, n.py, nodeR, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha * 0.75})`;
+      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha * 0.6})`;
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(n.px, n.py, nodeR * 0.45, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${alpha * 0.65})`;
+      ctx.arc(n.px, n.py, nodeR * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha * 0.55})`;
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
 
-    ctx.restore(); // remove clip
-
-    // Brain outline glow — multi-layer stroke (no shadowBlur needed)
+    // Brain outline — amber glow on top of nodes
     traceBrain();
     ctx.lineWidth = 14;
-    ctx.strokeStyle = 'rgba(245,166,35,0.05)';
+    ctx.strokeStyle = 'rgba(245,166,35,0.06)';
     ctx.stroke();
-    ctx.lineWidth = 7;
-    ctx.strokeStyle = 'rgba(245,166,35,0.10)';
+    traceBrain();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(245,166,35,0.14)';
     ctx.stroke();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = 'rgba(245,166,35,0.35)';
+    traceBrain();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(245,166,35,0.45)';
     ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(245,166,35,0.70)';
+    traceBrain();
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = 'rgba(245,166,35,0.80)';
     ctx.stroke();
 
-    // Central sulcus hint (faint vertical line)
+    // Central sulcus
     const cy = H * 0.46;
     const bh = Math.min(W * 0.38, H * 0.34) * 0.80;
     ctx.beginPath();
     ctx.moveTo(W / 2, cy - bh * 0.82);
     ctx.lineTo(W / 2, cy + bh * 0.82);
-    ctx.strokeStyle = 'rgba(245,166,35,0.07)';
+    ctx.strokeStyle = 'rgba(245,166,35,0.10)';
     ctx.lineWidth = 1;
     ctx.stroke();
   }
