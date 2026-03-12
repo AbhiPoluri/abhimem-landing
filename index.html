@@ -550,179 +550,314 @@ footer {
   <span class="footer-text">local-first &middot; open source &middot; no cloud</span>
 </footer>
 
-<!-- Animated memory particle canvas -->
+<!-- Flow field hero animation -->
 <script>
 (function() {
   const canvas = document.getElementById('mem-canvas');
   const ctx = canvas.getContext('2d');
-  let W, H;
+  let W, H, dpr;
   let particles = [];
   let memNodes = [];
-  let animFrame;
+  let mouseX = -9999, mouseY = -9999;
+  let time = 0;
 
-  const AMBER = [245, 166, 35];
-  const TEAL = [62, 207, 202];
-  const PURPLE = [124, 106, 247];
-
-  function resize() {
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
-    canvas.width = W * devicePixelRatio;
-    canvas.height = H * devicePixelRatio;
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-    buildScene();
+  // ── Simplex-like noise (seeded hash noise) ──────────────────────────────
+  // Fast and good enough for flow fields
+  function hash(n) {
+    n = Math.sin(n) * 43758.5453123;
+    return n - Math.floor(n);
+  }
+  function noise2(x, y) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const a = hash(ix + iy * 57);
+    const b = hash(ix + 1 + iy * 57);
+    const c = hash(ix + (iy + 1) * 57);
+    const d = hash(ix + 1 + (iy + 1) * 57);
+    return a + (b - a) * ux + (c - a) * uy + (d - a + a - b - c + b + c - d) * ux * uy;
+  }
+  function noise3(x, y, z) {
+    return noise2(x + z * 1.1, y + z * 0.7);
   }
 
-  // Memory nodes — fixed positions scattered around center
-  function buildScene() {
+  // ── Flow field angle at position ────────────────────────────────────────
+  const SCALE = 0.0025;
+  const CURL = 2.8;
+  function flowAngle(x, y) {
+    const n = noise3(x * SCALE, y * SCALE, time * 0.18);
+    return n * Math.PI * CURL;
+  }
+
+  // ── Color from HSL ──────────────────────────────────────────────────────
+  function hslToRgb(h, s, l) {
+    h = h % 360; s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+  }
+
+  // ── Memory hub nodes ────────────────────────────────────────────────────
+  const NODE_LABELS = ['recall', 'embed', 'dedupe', 'store', 'extract', 'search'];
+  const NODE_COLORS_HSL = [[38,95,55],[185,70,57],[260,75,65],[340,70,60],[145,65,50],[210,80,62]];
+
+  function buildNodes() {
     memNodes = [];
-    const cx = W / 2, cy = H / 2;
-    const r = Math.min(W, H) * 0.28;
-    const count = 12;
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const spread = 0.7 + Math.random() * 0.6;
+    const cx = W / 2, cy = H * 0.48;
+    const r = Math.min(W, H) * 0.26;
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+      const [h, s, l] = NODE_COLORS_HSL[i];
+      const rgb = hslToRgb(h, s, l);
       memNodes.push({
-        x: cx + Math.cos(angle) * r * spread,
-        y: cy + Math.sin(angle) * r * spread,
-        r: 3 + Math.random() * 4,
-        color: i % 3 === 0 ? AMBER : i % 3 === 1 ? TEAL : PURPLE,
-        pulse: Math.random() * Math.PI * 2,
-        alpha: 0.4 + Math.random() * 0.5,
+        x: cx + Math.cos(angle) * r,
+        y: cy + Math.sin(angle) * r,
+        baseX: cx + Math.cos(angle) * r,
+        baseY: cy + Math.sin(angle) * r,
+        r: 7, rgb, hsl: [h, s, l],
+        label: NODE_LABELS[i],
+        pulse: (i / 6) * Math.PI * 2,
+        attractRadius: 90,
+        attractStrength: 0.6,
       });
     }
-
-    // Center "DB" node
-    memNodes.push({ x: cx, y: cy, r: 10, color: AMBER, pulse: 0, alpha: 1, isCenter: true });
-
-    // Reset particles
-    particles = [];
-  }
-
-  // Spawn a particle that travels from edge → random mem node → center
-  function spawnParticle() {
-    const edge = Math.floor(Math.random() * 4);
-    let sx, sy;
-    if (edge === 0) { sx = Math.random() * W; sy = -10; }
-    else if (edge === 1) { sx = W + 10; sy = Math.random() * H; }
-    else if (edge === 2) { sx = Math.random() * W; sy = H + 10; }
-    else { sx = -10; sy = Math.random() * H; }
-
-    const target = memNodes[Math.floor(Math.random() * (memNodes.length - 1))];
-    const center = memNodes[memNodes.length - 1];
-    const color = [AMBER, TEAL, PURPLE][Math.floor(Math.random() * 3)];
-
-    particles.push({
-      x: sx, y: sy,
-      phase: 0, // 0 = going to mem node, 1 = going to center, 2 = done
-      target, center, color,
-      speed: 0.008 + Math.random() * 0.008,
-      size: 1.5 + Math.random() * 2,
-      trail: [],
+    // Center node
+    const amberRgb = hslToRgb(38, 95, 55);
+    memNodes.push({
+      x: cx, y: cy, baseX: cx, baseY: cy,
+      r: 14, rgb: amberRgb, hsl: [38, 95, 55],
+      label: 'abhimem', pulse: 0,
+      attractRadius: 140, attractStrength: 1.0, isCenter: true,
     });
   }
 
-  function lerp(a, b, t) { return a + (b - a) * t; }
+  // ── Particle spawn ──────────────────────────────────────────────────────
+  const MAX_PARTICLES = 2200;
+  const TRAIL_LEN = 40;
 
-  function draw(t) {
-    ctx.clearRect(0, 0, W, H);
+  function spawnParticle() {
+    // Random spawn across the canvas
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    // Hue tied to spawn position
+    const hue = (noise2(x * 0.003, y * 0.003) * 360 + 20) % 360;
+    particles.push({
+      x, y,
+      vx: 0, vy: 0,
+      hue, saturation: 75 + Math.random() * 20,
+      speed: 1.1 + Math.random() * 1.4,
+      age: 0,
+      maxAge: 280 + Math.random() * 220,
+      trail: [],
+      size: 0.8 + Math.random() * 1.4,
+    });
+  }
 
-    // Draw connections between mem nodes and center
+  // ── Draw ────────────────────────────────────────────────────────────────
+  function draw() {
+    // Fade trail — multiply instead of clear for trail persistence
+    ctx.fillStyle = 'rgba(8,8,8,0.18)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw connections between nodes
     const center = memNodes[memNodes.length - 1];
     for (let i = 0; i < memNodes.length - 1; i++) {
       const n = memNodes[i];
+      const [r,g,b] = n.rgb;
+      const grd = ctx.createLinearGradient(n.x, n.y, center.x, center.y);
+      grd.addColorStop(0, `rgba(${r},${g},${b},0.18)`);
+      grd.addColorStop(1, `rgba(245,166,35,0.08)`);
       ctx.beginPath();
       ctx.moveTo(n.x, n.y);
       ctx.lineTo(center.x, center.y);
-      ctx.strokeStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.06)`;
-      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = grd;
+      ctx.lineWidth = 0.7;
       ctx.stroke();
     }
 
-    // Draw mem nodes
-    for (const n of memNodes) {
-      const pulse = 0.5 + 0.5 * Math.sin(t * 0.0015 + n.pulse);
-      if (n.isCenter) {
-        // Center node glow
-        const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 4);
-        grd.addColorStop(0, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.3)`);
-        grd.addColorStop(1, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0)`);
+    // Draw particles
+    for (const p of particles) {
+      if (p.trail.length < 2) continue;
+      const lifeRatio = 1 - p.age / p.maxAge;
+      const alpha = Math.min(lifeRatio * 2, 1) * 0.75;
+
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = p.size;
+      ctx.lineCap = 'round';
+
+      // Draw trail as series of connected lines with fading opacity
+      for (let i = 1; i < p.trail.length; i++) {
+        const t0 = p.trail[i - 1], t1 = p.trail[i];
+        const segAlpha = (i / p.trail.length) * alpha;
+        const lightness = 55 + (i / p.trail.length) * 25;
         ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r * 4, 0, Math.PI * 2);
-        ctx.fillStyle = grd;
-        ctx.fill();
-        // Core
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${n.alpha})`;
-        ctx.fill();
-        // Pulse ring
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r + 4 + pulse * 6, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${0.15 * (1 - pulse)})`;
-        ctx.lineWidth = 1;
+        ctx.moveTo(t0.x, t0.y);
+        ctx.lineTo(t1.x, t1.y);
+        ctx.strokeStyle = `hsla(${p.hue},${p.saturation}%,${lightness}%,${segAlpha})`;
         ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r * (0.9 + pulse * 0.2), 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${n.color[0]},${n.color[1]},${n.color[2]},${n.alpha * (0.6 + pulse * 0.4)})`;
-        ctx.fill();
       }
+
+      // Glowing head
+      const head = p.trail[p.trail.length - 1];
+      ctx.shadowColor = `hsl(${p.hue},${p.saturation}%,75%)`;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, p.size * 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue},${p.saturation}%,88%,${alpha})`;
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
 
-    // Update and draw particles
+    // Draw memory nodes
+    for (const n of memNodes) {
+      const pulse = 0.5 + 0.5 * Math.sin(time * 1.2 + n.pulse);
+      const [r, g, b] = n.rgb;
+      const nodeR = n.r * (1 + pulse * 0.15);
+
+      // Outer glow rings
+      for (let ring = 3; ring >= 1; ring--) {
+        const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, nodeR * (ring * 2.5));
+        grd.addColorStop(0, `rgba(${r},${g},${b},${0.12 / ring})`);
+        grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nodeR * (ring * 2.5), 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+      }
+
+      // Node core
+      ctx.shadowColor = `rgb(${r},${g},${b})`;
+      ctx.shadowBlur = n.isCenter ? 20 : 12;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, nodeR, 0, Math.PI * 2);
+      const coreGrd = ctx.createRadialGradient(n.x - nodeR * 0.3, n.y - nodeR * 0.3, 0, n.x, n.y, nodeR);
+      coreGrd.addColorStop(0, `rgba(255,255,255,0.9)`);
+      coreGrd.addColorStop(0.4, `rgba(${r},${g},${b},0.95)`);
+      coreGrd.addColorStop(1, `rgba(${Math.max(0,r-40)},${Math.max(0,g-40)},${Math.max(0,b-40)},0.8)`);
+      ctx.fillStyle = coreGrd;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Pulse ring
+      if (n.isCenter) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nodeR + 8 + pulse * 12, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${r},${g},${b},${0.2 * (1 - pulse)})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Label
+      ctx.font = `500 ${n.isCenter ? 11 : 10}px Inter, sans-serif`;
+      ctx.fillStyle = `rgba(232,232,232,${0.55 + pulse * 0.3})`;
+      ctx.textAlign = 'center';
+      ctx.fillText(n.label, n.x, n.y + nodeR + 14);
+    }
+  }
+
+  // ── Update ──────────────────────────────────────────────────────────────
+  function update() {
+    time += 0.012;
+
+    // Animate node positions subtly
+    const cx = W / 2, cy = H * 0.48;
+    for (const n of memNodes) {
+      if (n.isCenter) continue;
+      n.x = n.baseX + Math.sin(time * 0.4 + n.pulse) * 6;
+      n.y = n.baseY + Math.cos(time * 0.3 + n.pulse * 1.3) * 5;
+    }
+
+    // Update particles
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
-      let tx, ty;
-      if (p.phase === 0) {
-        tx = p.target.x; ty = p.target.y;
-      } else {
-        tx = p.center.x; ty = p.center.y;
+      p.age++;
+
+      // Shift hue slowly
+      p.hue = (p.hue + 0.15) % 360;
+
+      // Get flow angle
+      let angle = flowAngle(p.x, p.y);
+
+      // Cursor vortex: if near mouse, rotate flow angle toward tangent
+      const mdx = mouseX - p.x, mdy = mouseY - p.y;
+      const mdist = Math.hypot(mdx, mdy);
+      if (mdist < 180 && mdist > 1) {
+        const vortexStrength = (1 - mdist / 180) * 2.5;
+        const tangentAngle = Math.atan2(mdx, -mdy);
+        angle = angle * (1 - vortexStrength * 0.7) + tangentAngle * vortexStrength * 0.7;
       }
 
-      // Move toward target
-      const dx = tx - p.x, dy = ty - p.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist < 8) {
-        if (p.phase === 0) { p.phase = 1; }
-        else { particles.splice(i, 1); continue; }
+      // Memory node attraction
+      for (const n of memNodes) {
+        const ndx = n.x - p.x, ndy = n.y - p.y;
+        const ndist = Math.hypot(ndx, ndy);
+        if (ndist < n.attractRadius && ndist > n.r * 2) {
+          const attrForce = (1 - ndist / n.attractRadius) * n.attractStrength * 0.04;
+          p.vx += (ndx / ndist) * attrForce;
+          p.vy += (ndy / ndist) * attrForce;
+          // Shift hue toward node hue
+          const nh = n.hsl[0];
+          p.hue = p.hue + (nh - p.hue) * 0.05;
+        }
       }
 
-      p.x += dx * p.speed * (p.phase === 1 ? 1.5 : 1);
-      p.y += dy * p.speed * (p.phase === 1 ? 1.5 : 1);
+      // Apply flow
+      p.vx = p.vx * 0.88 + Math.cos(angle) * p.speed * 0.12;
+      p.vy = p.vy * 0.88 + Math.sin(angle) * p.speed * 0.12;
+      p.x += p.vx;
+      p.y += p.vy;
 
       // Trail
       p.trail.push({ x: p.x, y: p.y });
-      if (p.trail.length > 18) p.trail.shift();
+      if (p.trail.length > TRAIL_LEN) p.trail.shift();
 
-      // Draw trail
-      for (let j = 0; j < p.trail.length; j++) {
-        const a = (j / p.trail.length) * 0.35;
-        ctx.beginPath();
-        ctx.arc(p.trail[j].x, p.trail[j].y, p.size * (j / p.trail.length) * 0.7, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${p.color[0]},${p.color[1]},${p.color[2]},${a})`;
-        ctx.fill();
+      // Remove if old or offscreen
+      if (p.age > p.maxAge || p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) {
+        particles.splice(i, 1);
       }
-
-      // Draw particle head
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${p.color[0]},${p.color[1]},${p.color[2]},0.9)`;
-      ctx.fill();
     }
 
-    // Spawn new particles
-    if (particles.length < 30 && Math.random() < 0.08) spawnParticle();
+    // Spawn up to max
+    while (particles.length < MAX_PARTICLES) spawnParticle();
   }
 
-  function loop(t) {
-    draw(t);
-    animFrame = requestAnimationFrame(loop);
+  // ── Loop ────────────────────────────────────────────────────────────────
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
   }
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W = canvas.offsetWidth;
+    H = canvas.offsetHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    buildNodes();
+    // Don't reset particles on resize — just respawn
+  }
+
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+  });
+  canvas.addEventListener('mouseleave', () => { mouseX = -9999; mouseY = -9999; });
+  canvas.addEventListener('touchmove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.touches[0].clientX - rect.left;
+    mouseY = e.touches[0].clientY - rect.top;
+  }, { passive: true });
 
   window.addEventListener('resize', resize);
   resize();
+
+  // Pre-spawn particles
+  for (let i = 0; i < MAX_PARTICLES; i++) spawnParticle();
+
   requestAnimationFrame(loop);
 })();
 </script>
