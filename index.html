@@ -320,6 +320,17 @@ footer {
   .section { padding: 72px 20px; }
   footer { padding: 28px 20px; flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Scroll reveal ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
 </style>
 </head>
 <body>
@@ -570,19 +581,32 @@ footer {
   const CAM_Z = 500;
   const ROT_SPEED = 0.003;
 
-  // Node colors
+  // Node colors by memory type
   const COLORS = [
-    [245, 166,  35],  // amber
-    [ 62, 207, 202],  // teal
-    [124, 106, 247],  // purple
-    [ 80, 200, 120],  // green
-    [100, 160, 240],  // blue
+    [245, 166,  35],  // amber  — memory
+    [ 62, 207, 202],  // teal   — project
+    [124, 106, 247],  // purple — feedback
+    [ 80, 200, 120],  // green  — ref
+    [100, 160, 240],  // blue   — context
+  ];
+
+  // Note labels — nodes are notes in the brain
+  const NOTE_TEXTS = [
+    'prefers terse replies', 'campus-ai', 'no mocks in tests', 'SFU · Burnaby BC',
+    'Linear: INGEST', 'family-tracker', 'morning briefing 8am', 'confirm before push',
+    'notesgraph', 'Supabase + pgvector', 'Next.js · TypeScript', 'GitHub: AbhiPoluri',
+    'narrate all actions', 'WhisperFlow', 'Cowork: Claude Desktop', 'iMessage pipeline',
+    'vercel dashboard', 'Groq llama-3.3-70b', 'no emojis', 'StriveSync',
+    'dark mode', 'apa203@sfu.ca', 'ntfy: sashi_cowork', 'terse, no filler',
+    'RAG: 965 docs', 'date -s%3N macOS bug', 'Ollama for cheap tasks',
+    'Right Command hotkey', 'Gemini 2.0 receipt parsing', 'pgvector 384-dim',
   ];
 
   let nodes = [];
   let edges = [];
   let signals = [];
   let brainPath = null; // Path2D, built once in resize
+  let hoveredNode = -1;
 
   // ── Build Path2D brain outline (top-down view, two lobes) ─────────────────
   function buildBrainPath() {
@@ -630,12 +654,16 @@ footer {
       // Reject the central sulcus region (thin strip along y-axis)
       if (Math.abs(z) < 0.06 && Math.abs(y) < 0.5) continue;
 
+      const colorIdx = Math.floor(Math.random() * COLORS.length);
       nodes.push({
         ox: x * scale, oy: y * scale, oz: z * scale,
         px: 0, py: 0, depth: 0,
         r: 2.5 + Math.random() * 3,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        color: COLORS[colorIdx],
+        colorIdx,
         pulse: Math.random() * Math.PI * 2,
+        text: NOTE_TEXTS[nodes.length % NOTE_TEXTS.length],
+        labelAlpha: 0, // fades in on hover
       });
     }
 
@@ -750,7 +778,31 @@ footer {
       ctx.globalCompositeOperation = 'source-over';
     }
 
+    // Hover labels (drawn outside clip so they're not masked)
     ctx.restore(); // remove clip
+
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const n = nodes[ni];
+      if (n.labelAlpha < 0.02) continue;
+      const [r, g, bl] = n.color;
+      const pad = 8, h = 22;
+      ctx.font = '500 10px Inter, sans-serif';
+      const tw = ctx.measureText(n.text).width;
+      const lx = n.px - tw / 2 - pad;
+      const ly = n.py - n.r * n.depth - 32;
+      // Background pill
+      ctx.beginPath();
+      ctx.roundRect(lx, ly, tw + pad * 2, h, 5);
+      ctx.fillStyle = `rgba(8,8,8,${n.labelAlpha * 0.88})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${n.labelAlpha * 0.5})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      // Text
+      ctx.fillStyle = `rgba(220,220,220,${n.labelAlpha})`;
+      ctx.textAlign = 'center';
+      ctx.fillText(n.text, n.px, ly + 14);
+    }
 
     // Brain outline glow — multi-layer stroke (no shadowBlur needed)
     ctx.lineWidth = 12;
@@ -782,6 +834,20 @@ footer {
     time += 0.012;
     frame++;
     angleY += ROT_SPEED;
+
+    // Hover detection — fade label in/out
+    hoveredNode = -1;
+    let bestDist = 40;
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const n = nodes[ni];
+      const d = Math.hypot(mouseX - n.px, mouseY - n.py);
+      if (d < bestDist) { bestDist = d; hoveredNode = ni; }
+    }
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const n = nodes[ni];
+      const target = ni === hoveredNode ? 1 : 0;
+      n.labelAlpha += (target - n.labelAlpha) * 0.12;
+    }
 
     // Fire synapse signal every 22 frames
     if (frame % 22 === 0 && edges.length > 0) {
@@ -866,6 +932,17 @@ footer {
   window.addEventListener('resize', resize);
   resize();
   requestAnimationFrame(loop);
+</script>
+
+<!-- Scroll reveal -->
+<script>
+(function() {
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('section.section, .feature-card, .pipe-step, .int-card')
+    .forEach(el => { el.classList.add('reveal'); obs.observe(el); });
+})();
 </script>
 </body>
 </html>
