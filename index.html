@@ -550,288 +550,300 @@ footer {
   <span class="footer-text">local-first &middot; open source &middot; no cloud</span>
 </footer>
 
-<!-- Flow field hero animation -->
+<!-- Memory graph hero animation -->
 <script>
 (function() {
   const canvas = document.getElementById('mem-canvas');
   const ctx = canvas.getContext('2d', { alpha: false });
   let W, H;
-  let particles = [];
-  let memNodes = [];
-  let mouseX = -9999, mouseY = -9999;
   let time = 0;
   let frame = 0;
+  let mouseX = -9999, mouseY = -9999;
 
-  // ── Precomputed flow field grid ─────────────────────────────────────────
-  const GRID_COLS = 60, GRID_ROWS = 40;
-  const flowField = new Float32Array(GRID_COLS * GRID_ROWS);
-  let cellW, cellH;
+  // ── Memory types ─────────────────────────────────────────────────────────
+  // Each node type has a color and category
+  const TYPES = {
+    memory:   [245, 166,  35],   // amber
+    project:  [ 62, 207, 202],   // teal
+    feedback: [124, 106, 247],   // purple
+    ref:      [ 80, 200, 120],   // green
+    context:  [100, 160, 240],   // blue
+  };
 
-  function hash(n) {
-    n = Math.sin(n) * 43758.5453123;
-    return n - Math.floor(n);
+  // Memory entries that will appear as nodes
+  const MEM_DATA = [
+    { type: 'memory',   text: 'prefers terse replies' },
+    { type: 'project',  text: 'campus-ai' },
+    { type: 'feedback', text: 'no mocks in tests' },
+    { type: 'context',  text: 'SFU · Burnaby BC' },
+    { type: 'ref',      text: 'Linear: INGEST' },
+    { type: 'project',  text: 'family-tracker' },
+    { type: 'memory',   text: 'morning briefing 8am' },
+    { type: 'feedback', text: 'confirm before push' },
+    { type: 'project',  text: 'notesgraph' },
+    { type: 'memory',   text: 'uses Supabase + pgvector' },
+    { type: 'context',  text: 'Next.js · TypeScript' },
+    { type: 'ref',      text: 'GitHub: AbhiPoluri' },
+    { type: 'feedback', text: 'narrate actions' },
+    { type: 'project',  text: 'WhisperFlow' },
+    { type: 'memory',   text: 'Cowork: Claude Desktop' },
+    { type: 'context',  text: 'iMessage pipeline' },
+    { type: 'ref',      text: 'vercel.com/dashboard' },
+    { type: 'memory',   text: 'Groq llama-3.3-70b' },
+    { type: 'feedback', text: 'no emojis unless asked' },
+    { type: 'project',  text: 'StriveSync' },
+    { type: 'memory',   text: 'dark mode preferred' },
+    { type: 'context',  text: 'apa203@sfu.ca' },
+    { type: 'ref',      text: 'ntfy: sashi_cowork' },
+    { type: 'feedback', text: 'terse, no filler' },
+    { type: 'memory',   text: 'RAG: 965 docs ingested' },
+  ];
+
+  let nodes = [];   // { x, y, vx, vy, type, text, r, opacity, edges[] }
+  let edges = [];   // { a (idx or -1=hub), b, opacity }
+  let signals = []; // { edgeIdx, t, speed, [r,g,b] }
+  let hub = null;   // center abhimem node
+
+  function buildHub() {
+    hub = {
+      x: W / 2, y: H * 0.46,
+      type: 'memory', text: 'abhimem',
+      r: 13, opacity: 1, isHub: true,
+    };
   }
-  function noise2(x, y) {
-    const ix = Math.floor(x), iy = Math.floor(y);
-    const fx = x - ix, fy = y - iy;
-    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
-    const a = hash(ix + iy * 57);
-    const b = hash(ix + 1 + iy * 57);
-    const c = hash(ix + (iy + 1) * 57);
-    const d = hash(ix + 1 + (iy + 1) * 57);
-    return a + (b - a) * ux + (c - a) * uy + (d - a + a - b - c + b + c - d) * ux * uy;
-  }
 
-  // Update grid every 3 frames instead of per-particle every frame
-  function updateFlowField() {
-    const t = time * 0.18;
-    const SCALE = 0.0025;
-    const CURL = Math.PI * 2.8;
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
-        const n = noise2(col * cellW * SCALE + t * 1.1, row * cellH * SCALE + t * 0.7);
-        flowField[row * GRID_COLS + col] = n * CURL;
-      }
+  function spawnNode() {
+    if (nodes.length >= MEM_DATA.length) return;
+    const idx = nodes.length;
+    const d = MEM_DATA[idx];
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.min(W, H) * (0.22 + Math.random() * 0.24);
+    const tx = Math.max(80, Math.min(W - 80, W/2 + Math.cos(angle) * dist));
+    const ty = Math.max(80, Math.min(H - 80, H*0.46 + Math.sin(angle) * dist));
+
+    const node = {
+      x: hub.x, y: hub.y,
+      vx: Math.cos(angle) * 1.5, vy: Math.sin(angle) * 1.5,
+      tx, ty,
+      type: d.type, text: d.text,
+      r: 5 + Math.random() * 3,
+      opacity: 0, edges: [],
+    };
+    nodes.push(node);
+
+    // Connect to hub
+    const ei = edges.length;
+    edges.push({ a: -1, b: idx, opacity: 0 });
+    hub.edges = hub.edges || [];
+    hub.edges.push(ei);
+    node.edges.push(ei);
+
+    // Connect to up to 2 same-type nodes
+    const sameType = nodes.slice(0, -1).filter(n => n.type === d.type);
+    for (const other of sameType.slice(0, 2)) {
+      const oi = nodes.indexOf(other);
+      const ei2 = edges.length;
+      edges.push({ a: oi, b: idx, opacity: 0 });
+      other.edges.push(ei2);
+      node.edges.push(ei2);
+    }
+
+    // Random cross-connection
+    if (nodes.length > 4 && Math.random() < 0.35) {
+      const ri = Math.floor(Math.random() * (nodes.length - 1));
+      const ei3 = edges.length;
+      edges.push({ a: ri, b: idx, opacity: 0 });
+      nodes[ri].edges.push(ei3);
+      node.edges.push(ei3);
     }
   }
 
-  function getFlowAngle(x, y) {
-    const col = Math.max(0, Math.min(GRID_COLS - 1, (x / cellW) | 0));
-    const row = Math.max(0, Math.min(GRID_ROWS - 1, (y / cellH) | 0));
-    return flowField[row * GRID_COLS + col];
+  function nodePos(idx) {
+    if (idx === -1) return hub;
+    return nodes[idx];
   }
 
-  // ── HSL → RGB ───────────────────────────────────────────────────────────
-  function hslToRgb(h, s, l) {
-    h = h % 360; s /= 100; l /= 100;
-    const k = n => (n + h / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
-  }
-
-  // ── Memory hub nodes ────────────────────────────────────────────────────
-  const NODE_LABELS = ['recall', 'embed', 'dedupe', 'store', 'extract', 'search'];
-  const NODE_COLORS_HSL = [[38,95,55],[185,70,57],[260,75,65],[340,70,60],[145,65,50],[210,80,62]];
-
-  function buildNodes() {
-    memNodes = [];
-    const cx = W / 2, cy = H * 0.48;
-    const r = Math.min(W, H) * 0.26;
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
-      const [h, s, l] = NODE_COLORS_HSL[i];
-      const rgb = hslToRgb(h, s, l);
-      memNodes.push({
-        x: cx + Math.cos(angle) * r,
-        y: cy + Math.sin(angle) * r,
-        baseX: cx + Math.cos(angle) * r,
-        baseY: cy + Math.sin(angle) * r,
-        r: 7, rgb, hsl: [h, s, l],
-        label: NODE_LABELS[i],
-        pulse: (i / 6) * Math.PI * 2,
-        attractRadius: 90, attractStrength: 0.6,
-      });
-    }
-    const amberRgb = hslToRgb(38, 95, 55);
-    memNodes.push({
-      x: cx, y: cy, baseX: cx, baseY: cy,
-      r: 14, rgb: amberRgb, hsl: [38, 95, 55],
-      label: 'abhimem', pulse: 0,
-      attractRadius: 140, attractStrength: 1.0, isCenter: true,
-    });
-  }
-
-  // ── Particles ───────────────────────────────────────────────────────────
-  const MAX_PARTICLES = 700;
-  const TRAIL_LEN = 28;
-
-  function spawnParticle() {
-    const x = Math.random() * W;
-    const y = Math.random() * H;
-    const hue = (noise2(x * 0.003, y * 0.003) * 360 + 20) % 360;
-    particles.push({
-      x, y, vx: 0, vy: 0,
-      hue,
-      speed: 1.5 + Math.random() * 1.8,
-      age: 0,
-      maxAge: 300 + Math.random() * 250,
-      trail: [],
-      size: 1.2 + Math.random() * 1.5,
-    });
-  }
-
-  // ── Draw ────────────────────────────────────────────────────────────────
+  // ── Draw ─────────────────────────────────────────────────────────────────
   function draw() {
-    // Fade — slightly faster fade keeps it clean
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(8,8,8,0.12)';
+    ctx.fillStyle = 'rgba(8,8,8,0.18)';
     ctx.fillRect(0, 0, W, H);
 
-    // Node connections
-    ctx.globalCompositeOperation = 'source-over';
-    const center = memNodes[memNodes.length - 1];
-    for (let i = 0; i < memNodes.length - 1; i++) {
-      const n = memNodes[i];
-      const [r,g,b] = n.rgb;
-      const grd = ctx.createLinearGradient(n.x, n.y, center.x, center.y);
-      grd.addColorStop(0, `rgba(${r},${g},${b},0.15)`);
-      grd.addColorStop(1, `rgba(245,166,35,0.06)`);
+    // Edges
+    for (const e of edges) {
+      if (e.opacity < 0.01) continue;
+      const a = nodePos(e.a), b = nodePos(e.b);
+      const [r, g, bl] = TYPES[e.a === -1 ? 'memory' : nodes[e.a].type];
       ctx.beginPath();
-      ctx.moveTo(n.x, n.y);
-      ctx.lineTo(center.x, center.y);
-      ctx.strokeStyle = grd;
-      ctx.lineWidth = 0.7;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${e.opacity * 0.16})`;
+      ctx.lineWidth = 0.8;
       ctx.stroke();
     }
 
-    // Particles — additive blend = free glow, no shadowBlur needed
+    // Signals (additive blend = free glow)
     ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    for (const p of particles) {
-      if (p.trail.length < 2) continue;
-      const lifeRatio = 1 - p.age / p.maxAge;
-      const alpha = Math.min(lifeRatio * 3, 1);
-
+    for (const s of signals) {
+      const e = edges[s.edgeIdx];
+      const a = nodePos(e.a), b = nodePos(e.b);
+      const t = s.reverse ? 1 - s.t : s.t;
+      const sx = a.x + (b.x - a.x) * t;
+      const sy = a.y + (b.y - a.y) * t;
+      const [r, g, bl] = s.col;
       ctx.beginPath();
-      ctx.moveTo(p.trail[0].x, p.trail[0].y);
-      for (let i = 1; i < p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
-      ctx.strokeStyle = `hsla(${p.hue},85%,62%,${alpha * 0.5})`;
-      ctx.lineWidth = p.size;
-      ctx.stroke();
-
-      // Bright head dot
-      const head = p.trail[p.trail.length - 1];
-      ctx.beginPath();
-      ctx.arc(head.x, head.y, p.size * 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${p.hue},100%,88%,${alpha * 0.85})`;
+      ctx.arc(sx, sy, 2.8, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},0.95)`;
       ctx.fill();
     }
-
-    // Memory nodes — back to normal blend
     ctx.globalCompositeOperation = 'source-over';
-    for (const n of memNodes) {
-      const pulse = 0.5 + 0.5 * Math.sin(time * 1.2 + n.pulse);
-      const [r, g, b] = n.rgb;
-      const nodeR = n.r * (1 + pulse * 0.15);
 
-      // Single glow halo
-      const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, nodeR * 4.5);
-      grd.addColorStop(0, `rgba(${r},${g},${b},0.14)`);
-      grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    // Nodes
+    const allNodes = [...nodes, hub];
+    for (const n of allNodes) {
+      if (n.opacity < 0.01) continue;
+      const [r, g, bl] = TYPES[n.type];
+      const pulse = 0.5 + 0.5 * Math.sin(time * 1.3 + n.x * 0.008);
+      const nodeR = n.r * (1 + pulse * 0.12);
+
+      // Halo
+      const halo = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, nodeR * 4.5);
+      halo.addColorStop(0, `rgba(${r},${g},${bl},${n.opacity * 0.13})`);
+      halo.addColorStop(1, `rgba(${r},${g},${bl},0)`);
       ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR * 4.5, 0, Math.PI * 2);
-      ctx.fillStyle = grd;
+      ctx.fillStyle = halo;
       ctx.fill();
 
-      // Core (additive for glow without shadowBlur)
+      // Core (additive for glow)
       ctx.globalCompositeOperation = 'lighter';
-      const coreGrd = ctx.createRadialGradient(n.x - nodeR * 0.3, n.y - nodeR * 0.3, 0, n.x, n.y, nodeR);
-      coreGrd.addColorStop(0, `rgba(255,255,255,0.75)`);
-      coreGrd.addColorStop(0.4, `rgba(${r},${g},${b},0.85)`);
-      coreGrd.addColorStop(1, `rgba(${Math.max(0,r-40)},${Math.max(0,g-40)},${Math.max(0,b-40)},0.5)`);
+      const core = ctx.createRadialGradient(n.x - nodeR*0.3, n.y - nodeR*0.3, 0, n.x, n.y, nodeR);
+      core.addColorStop(0, `rgba(255,255,255,${n.opacity * 0.8})`);
+      core.addColorStop(0.45, `rgba(${r},${g},${bl},${n.opacity * 0.9})`);
+      core.addColorStop(1, `rgba(${Math.max(0,r-50)},${Math.max(0,g-50)},${Math.max(0,bl-50)},${n.opacity * 0.4})`);
       ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR, 0, Math.PI * 2);
-      ctx.fillStyle = coreGrd;
+      ctx.fillStyle = core;
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
 
-      // Pulse ring (center only)
-      if (n.isCenter) {
+      // Pulse ring on hub
+      if (n.isHub) {
         ctx.beginPath();
-        ctx.arc(n.x, n.y, nodeR + 8 + pulse * 12, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${r},${g},${b},${0.2 * (1 - pulse)})`;
+        ctx.arc(n.x, n.y, nodeR + 7 + pulse * 10, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${r},${g},${bl},${0.18 * (1 - pulse)})`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 
       // Label
-      ctx.font = `500 ${n.isCenter ? 11 : 10}px Inter, sans-serif`;
-      ctx.fillStyle = `rgba(232,232,232,${0.55 + pulse * 0.3})`;
-      ctx.textAlign = 'center';
-      ctx.fillText(n.label, n.x, n.y + nodeR + 14);
+      const labelAlpha = n.isHub ? 0.85 : Math.max(0, (n.opacity - 0.4) / 0.6) * 0.7;
+      if (labelAlpha > 0.02) {
+        ctx.font = `${n.isHub ? '500 11px' : '400 9px'} Inter, sans-serif`;
+        ctx.fillStyle = `rgba(220,220,220,${labelAlpha})`;
+        ctx.textAlign = 'center';
+        ctx.fillText(n.text, n.x, n.y + nodeR + 12);
+      }
     }
   }
 
-  // ── Update ──────────────────────────────────────────────────────────────
+  // ── Update ────────────────────────────────────────────────────────────────
   function update() {
     time += 0.012;
     frame++;
 
-    // Recompute flow field every 3 frames (big perf win)
-    if (frame % 3 === 0) updateFlowField();
+    // Spawn a node every 55 frames
+    if (frame % 55 === 0) spawnNode();
 
-    // Animate nodes
-    for (const n of memNodes) {
-      if (n.isCenter) continue;
-      n.x = n.baseX + Math.sin(time * 0.4 + n.pulse) * 6;
-      n.y = n.baseY + Math.cos(time * 0.3 + n.pulse * 1.3) * 5;
+    // Fade in edges
+    for (const e of edges) {
+      if (e.opacity < 1) e.opacity = Math.min(1, e.opacity + 0.012);
     }
 
-    // Update particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.age++;
-      p.hue = (p.hue + 0.15) % 360;
+    // Update graph nodes
+    for (const n of nodes) {
+      if (n.opacity < 1) n.opacity = Math.min(1, n.opacity + 0.018);
 
-      let angle = getFlowAngle(p.x, p.y);
+      // Spring toward target
+      n.vx = n.vx * 0.9 + (n.tx - n.x) * 0.006;
+      n.vy = n.vy * 0.9 + (n.ty - n.y) * 0.006;
 
-      // Cursor vortex
-      const mdx = mouseX - p.x, mdy = mouseY - p.y;
-      const mdist = Math.hypot(mdx, mdy);
-      if (mdist < 180 && mdist > 1) {
-        const vs = (1 - mdist / 180) * 2.5;
-        angle = angle * (1 - vs * 0.7) + Math.atan2(mdx, -mdy) * vs * 0.7;
+      // Gentle drift
+      n.vx += (Math.random() - 0.5) * 0.06;
+      n.vy += (Math.random() - 0.5) * 0.06;
+
+      // Repel from hub
+      const hx = n.x - hub.x, hy = n.y - hub.y;
+      const hd = Math.hypot(hx, hy);
+      if (hd < 70 && hd > 0.1) {
+        const f = (70 - hd) / 70 * 0.4;
+        n.vx += (hx / hd) * f;
+        n.vy += (hy / hd) * f;
       }
 
-      // Node attraction
-      for (const n of memNodes) {
-        const ndx = n.x - p.x, ndy = n.y - p.y;
-        const ndist = Math.hypot(ndx, ndy);
-        if (ndist < n.attractRadius && ndist > n.r * 2) {
-          const f = (1 - ndist / n.attractRadius) * n.attractStrength * 0.04;
-          p.vx += (ndx / ndist) * f;
-          p.vy += (ndy / ndist) * f;
-          p.hue = p.hue + (n.hsl[0] - p.hue) * 0.05;
+      // Repel from other nodes
+      for (const o of nodes) {
+        if (o === n) continue;
+        const ox = n.x - o.x, oy = n.y - o.y;
+        const od = Math.hypot(ox, oy);
+        if (od < 55 && od > 0.1) {
+          const f = (55 - od) / 55 * 0.25;
+          n.vx += (ox / od) * f;
+          n.vy += (oy / od) * f;
         }
       }
 
-      p.vx = p.vx * 0.88 + Math.cos(angle) * p.speed * 0.12;
-      p.vy = p.vy * 0.88 + Math.sin(angle) * p.speed * 0.12;
-      p.x += p.vx;
-      p.y += p.vy;
+      // Clamp speed
+      const spd = Math.hypot(n.vx, n.vy);
+      if (spd > 1.2) { n.vx *= 1.2/spd; n.vy *= 1.2/spd; }
 
-      p.trail.push({ x: p.x, y: p.y });
-      if (p.trail.length > TRAIL_LEN) p.trail.shift();
+      n.x += n.vx;
+      n.y += n.vy;
+    }
 
-      if (p.age > p.maxAge || p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) {
-        particles.splice(i, 1);
+    // Fire signals along edges
+    if (frame % 18 === 0 && edges.length > 0) {
+      const ei = Math.floor(Math.random() * edges.length);
+      const e = edges[ei];
+      if (e.opacity > 0.5) {
+        const srcType = e.a === -1 ? 'memory' : nodes[e.a].type;
+        signals.push({ edgeIdx: ei, t: 0, speed: 0.007 + Math.random() * 0.007,
+                       col: TYPES[srcType], reverse: Math.random() < 0.5 });
       }
     }
 
-    while (particles.length < MAX_PARTICLES) spawnParticle();
+    // Mouse hover: burst signals
+    if (frame % 25 === 0 && mouseX > 0) {
+      for (let ni = 0; ni < nodes.length; ni++) {
+        const n = nodes[ni];
+        if (Math.hypot(mouseX - n.x, mouseY - n.y) < 50 && n.edges.length > 0) {
+          const ei = n.edges[Math.floor(Math.random() * n.edges.length)];
+          if (edges[ei] && edges[ei].opacity > 0.3) {
+            signals.push({ edgeIdx: ei, t: 0, speed: 0.012 + Math.random() * 0.006,
+                           col: TYPES[n.type], reverse: Math.random() < 0.5 });
+          }
+        }
+      }
+    }
+
+    // Update signals
+    for (let i = signals.length - 1; i >= 0; i--) {
+      signals[i].t += signals[i].speed;
+      if (signals[i].t >= 1) signals.splice(i, 1);
+    }
   }
 
-  // ── Loop ────────────────────────────────────────────────────────────────
-  function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
-  }
+  // ── Loop ─────────────────────────────────────────────────────────────────
+  function loop() { update(); draw(); requestAnimationFrame(loop); }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5); // cap dpr for perf
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     W = canvas.offsetWidth;
     H = canvas.offsetHeight;
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
-    cellW = W / GRID_COLS;
-    cellH = H / GRID_ROWS;
-    buildNodes();
-    updateFlowField();
+    buildHub();
   }
 
   canvas.addEventListener('mousemove', e => {
@@ -840,18 +852,13 @@ footer {
     mouseY = e.clientY - rect.top;
   });
   canvas.addEventListener('mouseleave', () => { mouseX = -9999; mouseY = -9999; });
-  canvas.addEventListener('touchmove', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.touches[0].clientX - rect.left;
-    mouseY = e.touches[0].clientY - rect.top;
-  }, { passive: true });
 
   window.addEventListener('resize', resize);
   resize();
 
-  for (let i = 0; i < MAX_PARTICLES; i++) spawnParticle();
+  // Pre-spawn 10 nodes immediately so the canvas isn't empty
+  for (let i = 0; i < 10; i++) spawnNode();
   requestAnimationFrame(loop);
-})();
 </script>
 </body>
 </html>
