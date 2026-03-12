@@ -86,7 +86,7 @@ nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
 }
 .hero-vignette {
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse 55% 55% at 50% 50%, transparent 25%, var(--bg) 100%);
+  background: radial-gradient(ellipse 70% 65% at 50% 50%, transparent 20%, rgba(8,8,8,0.7) 75%, var(--bg) 100%);
   z-index: 1; pointer-events: none;
 }
 .hero-fade {
@@ -633,8 +633,8 @@ footer {
   }
 
   // ── Particle spawn ──────────────────────────────────────────────────────
-  const MAX_PARTICLES = 2200;
-  const TRAIL_LEN = 40;
+  const MAX_PARTICLES = 1600;
+  const TRAIL_LEN = 55;
 
   function spawnParticle() {
     // Random spawn across the canvas
@@ -646,18 +646,18 @@ footer {
       x, y,
       vx: 0, vy: 0,
       hue, saturation: 75 + Math.random() * 20,
-      speed: 1.1 + Math.random() * 1.4,
+      speed: 1.5 + Math.random() * 1.8,
       age: 0,
-      maxAge: 280 + Math.random() * 220,
+      maxAge: 320 + Math.random() * 280,
       trail: [],
-      size: 0.8 + Math.random() * 1.4,
+      size: 1.1 + Math.random() * 1.8,
     });
   }
 
   // ── Draw ────────────────────────────────────────────────────────────────
   function draw() {
-    // Fade trail — multiply instead of clear for trail persistence
-    ctx.fillStyle = 'rgba(8,8,8,0.18)';
+    // Fade trail — slower fade = longer trails
+    ctx.fillStyle = 'rgba(8,8,8,0.08)';
     ctx.fillRect(0, 0, W, H);
 
     // Draw connections between nodes
@@ -680,31 +680,39 @@ footer {
     for (const p of particles) {
       if (p.trail.length < 2) continue;
       const lifeRatio = 1 - p.age / p.maxAge;
-      const alpha = Math.min(lifeRatio * 2, 1) * 0.75;
+      const alpha = Math.min(lifeRatio * 3, 1) * 0.9;
 
-      ctx.shadowBlur = 0;
-      ctx.lineWidth = p.size;
       ctx.lineCap = 'round';
 
-      // Draw trail as series of connected lines with fading opacity
-      for (let i = 1; i < p.trail.length; i++) {
-        const t0 = p.trail[i - 1], t1 = p.trail[i];
-        const segAlpha = (i / p.trail.length) * alpha;
-        const lightness = 55 + (i / p.trail.length) * 25;
+      // Draw trail as a single path for performance, glow pass + sharp pass
+      if (p.trail.length >= 2) {
+        // Glow pass (blurred wide line)
+        ctx.shadowColor = `hsl(${p.hue},${p.saturation}%,72%)`;
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = p.size * 2.5;
         ctx.beginPath();
-        ctx.moveTo(t0.x, t0.y);
-        ctx.lineTo(t1.x, t1.y);
-        ctx.strokeStyle = `hsla(${p.hue},${p.saturation}%,${lightness}%,${segAlpha})`;
+        ctx.moveTo(p.trail[0].x, p.trail[0].y);
+        for (let i = 1; i < p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
+        ctx.strokeStyle = `hsla(${p.hue},${p.saturation}%,65%,${alpha * 0.25})`;
+        ctx.stroke();
+
+        // Sharp core line
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = p.size;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[0].x, p.trail[0].y);
+        for (let i = 1; i < p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
+        ctx.strokeStyle = `hsla(${p.hue},${p.saturation}%,78%,${alpha * 0.7})`;
         ctx.stroke();
       }
 
-      // Glowing head
+      // Bright glowing head
       const head = p.trail[p.trail.length - 1];
-      ctx.shadowColor = `hsl(${p.hue},${p.saturation}%,75%)`;
-      ctx.shadowBlur = 8;
+      ctx.shadowColor = `hsl(${p.hue},100%,80%)`;
+      ctx.shadowBlur = 14;
       ctx.beginPath();
-      ctx.arc(head.x, head.y, p.size * 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${p.hue},${p.saturation}%,88%,${alpha})`;
+      ctx.arc(head.x, head.y, p.size * 2, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue},${p.saturation}%,92%,${alpha})`;
       ctx.fill();
       ctx.shadowBlur = 0;
     }
