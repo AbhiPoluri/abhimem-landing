@@ -131,7 +131,17 @@ nav a.nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
   height: clamp(280px, 38vw, 460px);
   flex-shrink: 0;
 }
-#brain-canvas { width: 100%; height: 100%; display: block; }
+#brain-canvas { width: 100%; height: 100%; display: block; cursor: default; }
+#brain-wrap { position: relative; }
+#brain-tooltip {
+  position: absolute; pointer-events: none;
+  background: rgba(8,8,8,0.88); border: 1px solid var(--amber);
+  color: var(--amber); font-size: 12px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em;
+  padding: 5px 10px; border-radius: 5px; white-space: nowrap;
+  opacity: 0; transition: opacity 0.15s;
+  backdrop-filter: blur(8px);
+}
 
 /* ── Pipeline diagram ── */
 .pipeline {
@@ -395,6 +405,7 @@ footer {
   </div>
   <div id="brain-wrap">
     <canvas id="brain-canvas"></canvas>
+    <div id="brain-tooltip"></div>
   </div>
 </section>
 
@@ -435,7 +446,7 @@ footer {
 
 <!-- Features -->
 <div class="divider"></div>
-<section class="section">
+<section class="section" id="features">
   <div class="section-label">Features</div>
   <h2 class="section-title">Smart. Silent. Local.</h2>
   <p class="section-sub">Everything runs on your machine using open-source models. abhimem never phones home.</p>
@@ -475,7 +486,7 @@ footer {
 
 <!-- MCP Tools -->
 <div class="divider"></div>
-<section class="section">
+<section class="section" id="mcp-tools">
   <div class="section-label">MCP Tools</div>
   <h2 class="section-title">Six tools. All in Claude.</h2>
   <p class="section-sub">Once installed, these tools are available in every Claude Code session via the FastMCP server running on <code style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--amber)">localhost:8765</code>.</p>
@@ -517,7 +528,7 @@ footer {
 
 <!-- Install -->
 <div class="divider"></div>
-<section class="section">
+<section class="section" id="install">
   <div class="section-label">Install</div>
   <h2 class="section-title">One command.</h2>
   <p class="section-sub">Requires macOS, Python 3.9+, and Ollama. The installer handles everything else — models, LaunchAgent, MCP registration, Stop hook.</p>
@@ -547,7 +558,7 @@ footer {
 
 <!-- Integrations -->
 <div class="divider"></div>
-<section class="section">
+<section class="section" id="integrations">
   <div class="section-label">Integrations</div>
   <h2 class="section-title">Works with your tools.</h2>
   <p class="section-sub">abhimem connects with the apps already in your workflow.</p>
@@ -628,17 +639,29 @@ footer {
 
   const nodePos = [], edgeList = [], sigMeshes = [], signals = [];
   const NCOLS = [0xf5a623, 0x3ecfca, 0x7c6af7, 0xf5a623, 0x3ecfca];
+  const navMeshes = [], navData = [
+    { label: 'How it works', href: '#how-it-works' },
+    { label: 'Features',     href: '#features'     },
+    { label: 'MCP Tools',    href: '#mcp-tools'    },
+    { label: 'Install',      href: '#install'      },
+    { label: 'Integrations', href: '#integrations' },
+  ];
+
+  const tooltip = document.getElementById('brain-tooltip');
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2(-99, -99);
 
   function buildNetwork(verts) {
-    // Nodes
+    // First 5 verts → nav nodes (larger, always amber)
     verts.forEach((p, i) => {
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.028, 8, 8),
-        new THREE.MeshBasicMaterial({ color: NCOLS[i % NCOLS.length] })
-      );
+      const isNav = i < navData.length;
+      const geo = new THREE.SphereGeometry(isNav ? 0.052 : 0.028, 8, 8);
+      const mat = new THREE.MeshBasicMaterial({ color: isNav ? 0xf5a623 : NCOLS[i % NCOLS.length] });
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(p);
       nodePos.push(p);
       group.add(mesh);
+      if (isNav) navMeshes.push(mesh);
     });
     // Edges
     const edgePts = [];
@@ -668,6 +691,52 @@ footer {
       }
     }
   }
+
+  // Mouse interaction
+  let hoveredNav = -1;
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+    mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(navMeshes);
+    if (hits.length) {
+      const idx = navMeshes.indexOf(hits[0].object);
+      if (idx !== hoveredNav) {
+        hoveredNav = idx;
+        navMeshes.forEach((m, i) => m.material.color.set(i === idx ? 0xffd166 : 0xf5a623));
+      }
+      canvas.style.cursor = 'pointer';
+      tooltip.textContent = navData[idx].label;
+      tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+      tooltip.style.top  = (e.clientY - rect.top  - 10) + 'px';
+      tooltip.style.opacity = '1';
+    } else {
+      if (hoveredNav !== -1) {
+        navMeshes.forEach(m => m.material.color.set(0xf5a623));
+        hoveredNav = -1;
+      }
+      canvas.style.cursor = 'default';
+      tooltip.style.opacity = '0';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.style.opacity = '0';
+    canvas.style.cursor = 'default';
+    navMeshes.forEach(m => m.material.color.set(0xf5a623));
+    hoveredNav = -1;
+  });
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+    mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(navMeshes);
+    if (hits.length) {
+      const idx = navMeshes.indexOf(hits[0].object);
+      document.querySelector(navData[idx].href)?.scrollIntoView({ behavior: 'smooth' });
+    }
+  });
 
   let rot = 0;
   function animate() {
