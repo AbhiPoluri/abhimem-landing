@@ -658,14 +658,6 @@ footer {
   renderer.setClearColor(0x000000, 0);
   renderer.outputEncoding = THREE.sRGBEncoding;
 
-  scene.add(new THREE.AmbientLight(0x112233, 6));
-  const L1 = new THREE.PointLight(0xf5a623, 4, 14);
-  L1.position.set(3, 2, 3);
-  scene.add(L1);
-  const L2 = new THREE.PointLight(0x3ecfca, 2, 10);
-  L2.position.set(-3, -1.5, 1);
-  scene.add(L2);
-
   function resize() {
     const w = wrap.offsetWidth || 400, h = wrap.offsetHeight || 400;
     camera.aspect = w / h;
@@ -674,9 +666,33 @@ footer {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   }
 
-  const nodePos = [], edgeList = [], sigMeshes = [], signals = [];
-  const NCOLS = [0xf5a623, 0x3ecfca, 0x7c6af7, 0xf5a623, 0x3ecfca];
-  const navMeshes = [], navData = [
+  // ASCII sprite factory — renders a character to a canvas texture
+  function makeCharSprite(char, hexColor, size) {
+    const c = document.createElement('canvas');
+    const px = size || 64;
+    c.width = px; c.height = px;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, px, px);
+    ctx.fillStyle = hexColor;
+    ctx.font = `bold ${Math.floor(px * 0.72)}px "Space Mono", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(char, px / 2, px / 2);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(0.18, 0.18, 1);
+    return sprite;
+  }
+
+  const NAV_CHARS  = ['◈', '◆', '◉', '▲', '◇'];
+  const NODE_CHARS = ['·', '+', '×', '∘', '⊹', '✦', '∗', '◦'];
+  const SIG_CHARS  = ['✦', '*'];
+  const AMBER = '#f5a623', TEAL = '#3ecfca', PURPLE = '#7c6af7';
+  const NODE_COLORS = [AMBER, TEAL, PURPLE, AMBER, TEAL];
+
+  const nodePos = [], edgeList = [], sigSprites = [], signals = [];
+  const navSprites = [], navData = [
     { label: 'How it works', href: '#how-it-works' },
     { label: 'Features',     href: '#features'     },
     { label: 'MCP Tools',    href: '#mcp-tools'    },
@@ -685,74 +701,98 @@ footer {
   ];
 
   const tooltip = document.getElementById('brain-tooltip');
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(-99, -99);
 
   function buildNetwork(verts) {
-    // First 5 verts → nav nodes (larger, always amber)
     verts.forEach((p, i) => {
       const isNav = i < navData.length;
-      const geo = new THREE.SphereGeometry(isNav ? 0.052 : 0.028, 8, 8);
-      const mat = new THREE.MeshBasicMaterial({ color: isNav ? 0xf5a623 : NCOLS[i % NCOLS.length] });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(p);
+      let sprite;
+      if (isNav) {
+        sprite = makeCharSprite(NAV_CHARS[i], AMBER, 72);
+        sprite.scale.set(0.22, 0.22, 1);
+        navSprites.push(sprite);
+      } else {
+        const char = NODE_CHARS[i % NODE_CHARS.length];
+        const col  = NODE_COLORS[i % NODE_COLORS.length];
+        sprite = makeCharSprite(char, col, 48);
+      }
+      sprite.position.copy(p);
       nodePos.push(p);
-      group.add(mesh);
-      if (isNav) navMeshes.push(mesh);
+      group.add(sprite);
     });
-    // Edges
-    const edgePts = [];
+
+    // Dashed edges — sample points along each edge and place tiny '·' sprites
     for (let i = 0; i < nodePos.length; i++) {
       let c = 0;
-      for (let j = i+1; j < nodePos.length && c < 3; j++) {
-        if (nodePos[i].distanceTo(nodePos[j]) < 0.55) {
+      for (let j = i + 1; j < nodePos.length && c < 3; j++) {
+        const dist = nodePos[i].distanceTo(nodePos[j]);
+        if (dist < 0.55) {
           edgeList.push([i, j]);
-          edgePts.push(nodePos[i].clone(), nodePos[j].clone());
+          // Place dash characters along the edge
+          const steps = Math.max(2, Math.floor(dist / 0.12));
+          for (let k = 1; k < steps; k++) {
+            const t = k / steps;
+            const dot = makeCharSprite('·', TEAL, 24);
+            dot.material.opacity = 0.3;
+            dot.scale.set(0.07, 0.07, 1);
+            dot.position.lerpVectors(nodePos[i], nodePos[j], t);
+            group.add(dot);
+          }
           c++;
         }
       }
     }
-    if (edgePts.length) {
-      group.add(new THREE.LineSegments(
-        new THREE.BufferGeometry().setFromPoints(edgePts),
-        new THREE.LineBasicMaterial({ color: 0x3ecfca, transparent: true, opacity: 0.25 })
-      ));
-    }
-    // Signal pulses
+
+    // Signal pulses as ASCII sprites
     if (edgeList.length) {
-      const sGeo = new THREE.SphereGeometry(0.038, 8, 8);
       for (let i = 0; i < 7; i++) {
-        const m = new THREE.Mesh(sGeo, new THREE.MeshBasicMaterial({ color: i%2===0?0xf5a623:0x3ecfca }));
-        group.add(m); sigMeshes.push(m);
-        signals.push({ edge: edgeList[Math.floor(Math.random()*edgeList.length)], t: Math.random(), speed: 0.007+Math.random()*0.009 });
+        const col = i % 2 === 0 ? AMBER : TEAL;
+        const sp = makeCharSprite(SIG_CHARS[i % SIG_CHARS.length], col, 56);
+        sp.scale.set(0.15, 0.15, 1);
+        group.add(sp);
+        sigSprites.push(sp);
+        signals.push({ edge: edgeList[Math.floor(Math.random() * edgeList.length)], t: Math.random(), speed: 0.007 + Math.random() * 0.009 });
       }
     }
   }
 
-  // Mouse interaction
+  // Hover / click via raycasting against invisible hit-planes at nav positions
+  const hitMeshes = [];
+  function buildHitMeshes() {
+    navSprites.forEach((sp, i) => {
+      const geo = new THREE.PlaneGeometry(0.22, 0.22);
+      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.copy(sp.position);
+      m.userData.idx = i;
+      group.add(m);
+      hitMeshes.push(m);
+    });
+  }
+
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2(-99, -99);
   let hoveredNav = -1;
+
+  function updateHitPositions() {
+    hitMeshes.forEach((m, i) => m.position.copy(navSprites[i].position));
+  }
+
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(navMeshes);
+    const hits = raycaster.intersectObjects(hitMeshes);
     if (hits.length) {
-      const idx = navMeshes.indexOf(hits[0].object);
-      if (idx !== hoveredNav) {
-        hoveredNav = idx;
-        navMeshes.forEach((m, i) => m.material.color.set(i === idx ? 0xffd166 : 0xf5a623));
-      }
+      const idx = hits[0].object.userData.idx;
+      hoveredNav = idx;
       canvas.style.cursor = 'pointer';
       tooltip.textContent = navData[idx].label;
       tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
       tooltip.style.top  = (e.clientY - rect.top  - 10) + 'px';
       tooltip.style.opacity = '1';
     } else {
-      if (hoveredNav !== -1) {
-        navMeshes.forEach(m => m.material.color.set(0xf5a623));
-        hoveredNav = -1;
-      }
+      hoveredNav = -1;
       canvas.style.cursor = 'default';
       tooltip.style.opacity = '0';
     }
@@ -760,7 +800,6 @@ footer {
   canvas.addEventListener('mouseleave', () => {
     tooltip.style.opacity = '0';
     canvas.style.cursor = 'default';
-    navMeshes.forEach(m => m.material.color.set(0xf5a623));
     hoveredNav = -1;
   });
   canvas.addEventListener('click', e => {
@@ -768,10 +807,9 @@ footer {
     mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(navMeshes);
+    const hits = raycaster.intersectObjects(hitMeshes);
     if (hits.length) {
-      const idx = navMeshes.indexOf(hits[0].object);
-      document.querySelector(navData[idx].href)?.scrollIntoView({ behavior: 'smooth' });
+      document.querySelector(navData[hits[0].object.userData.idx].href)?.scrollIntoView({ behavior: 'smooth' });
     }
   });
 
@@ -784,19 +822,24 @@ footer {
     if (edgeList.length) {
       signals.forEach((sig, i) => {
         sig.t += sig.speed;
-        if (sig.t > 1) { sig.t -= 1; sig.edge = edgeList[Math.floor(Math.random()*edgeList.length)]; }
-        sigMeshes[i].position.lerpVectors(nodePos[sig.edge[0]], nodePos[sig.edge[1]], sig.t);
+        if (sig.t > 1) { sig.t -= 1; sig.edge = edgeList[Math.floor(Math.random() * edgeList.length)]; }
+        sigSprites[i].position.lerpVectors(nodePos[sig.edge[0]], nodePos[sig.edge[1]], sig.t);
       });
     }
+    // Pulse nav sprites
+    navSprites.forEach((sp, i) => {
+      const pulse = 0.18 + Math.sin(rot * 2.5 + i * 1.3) * 0.03;
+      sp.scale.set(pulse, pulse, 1);
+    });
+    updateHitPositions();
     renderer.render(scene, camera);
   }
 
-  // Load real brain model
+  // Load brain model
   const loader = new THREE.GLTFLoader();
   loader.load(
     'https://raw.githubusercontent.com/bytezpro/threejs-brain-animation/main/src/static/brain.glb',
     function(gltf) {
-      // Center and scale
       const box = new THREE.Box3().setFromObject(gltf.scene);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
@@ -805,18 +848,17 @@ footer {
       gltf.scene.scale.setScalar(s);
       gltf.scene.updateMatrixWorld(true);
 
-      // Collect surface vertices & apply material
       const allVerts = [];
       gltf.scene.traverse(child => {
         if (!child.isMesh) return;
         child.material = new THREE.MeshPhongMaterial({
-          color: 0x0a0a20, emissive: 0x05051a,
-          specular: 0x223388, shininess: 35,
-          transparent: true, opacity: 0.52, depthWrite: false,
+          color: 0x080818, emissive: 0x030310,
+          specular: 0x112266, shininess: 20,
+          transparent: true, opacity: 0.38, depthWrite: false,
         });
-        // Wireframe overlay
+        // Subtle wireframe
         const wire = new THREE.Mesh(child.geometry, new THREE.MeshBasicMaterial({
-          color: 0xf5a623, wireframe: true, transparent: true, opacity: 0.025, depthWrite: false,
+          color: 0x3ecfca, wireframe: true, transparent: true, opacity: 0.018, depthWrite: false,
         }));
         wire.matrix.copy(child.matrix);
         wire.matrixAutoUpdate = false;
@@ -826,23 +868,20 @@ footer {
         const mat = child.matrixWorld;
         const step = Math.max(1, Math.floor(pa.count / 80));
         for (let i = 0; i < pa.count; i += step) {
-          const v = new THREE.Vector3(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(mat);
-          allVerts.push(v);
+          allVerts.push(new THREE.Vector3(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(mat));
         }
       });
 
       group.add(gltf.scene);
 
-      // Pick 40 evenly-spaced surface nodes
       const picked = [];
       const stride = Math.floor(allVerts.length / 40);
-      for (let i = 0; i < 40 && i * stride < allVerts.length; i++) {
-        picked.push(allVerts[i * stride]);
-      }
+      for (let i = 0; i < 40 && i * stride < allVerts.length; i++) picked.push(allVerts[i * stride]);
       buildNetwork(picked);
+      buildHitMeshes();
     },
     undefined,
-    function(err) { console.warn('Brain GLB load failed, skipping model', err); }
+    function(err) { console.warn('Brain GLB load failed', err); }
   );
 
   window.addEventListener('resize', resize);
