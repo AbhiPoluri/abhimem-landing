@@ -138,8 +138,9 @@ nav a.nav-cta:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 0
   height: clamp(280px, 38vw, 460px);
   flex-shrink: 0;
 }
-#brain-canvas { width: 100%; height: 100%; display: block; cursor: default; }
-#brain-wrap { position: relative; }
+#brain-wrap { position: relative; overflow: hidden; }
+#brain-wrap > div:first-child { width: 100% !important; height: 100% !important; }
+#brain-wrap pre { line-height: 1 !important; }
 #brain-tooltip {
   position: absolute; pointer-events: none;
   background: rgba(8,8,8,0.88); border: 1px solid var(--amber);
@@ -406,6 +407,7 @@ footer {
 </style>
 <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/effects/AsciiEffect.js"></script>
 </head>
 <body>
 
@@ -441,7 +443,6 @@ footer {
     </div>
   </div>
   <div id="brain-wrap">
-    <canvas id="brain-canvas"></canvas>
     <div id="brain-tooltip"></div>
   </div>
 </section>
@@ -639,255 +640,121 @@ footer {
   <span class="footer-text">local-first &middot; open source &middot; no cloud</span>
 </footer>
 
-<!-- Brain animation -->
+<!-- Brain animation — AsciiEffect (full surface render) -->
 <script>
 (function() {
-  if (typeof THREE === 'undefined') return;
+  if (typeof THREE === 'undefined' || typeof THREE.AsciiEffect === 'undefined') return;
   const wrap = document.getElementById('brain-wrap');
-  const canvas = document.getElementById('brain-canvas');
-  if (!canvas || !wrap) return;
+  if (!wrap) return;
 
   const scene = new THREE.Scene();
   const group = new THREE.Group();
   scene.add(group);
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-  camera.position.set(0, 0.1, 3.2);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.position.set(0, 0.15, 2.6);
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setClearColor(0x000000, 0);
-  renderer.outputEncoding = THREE.sRGBEncoding;
+  // Ambient keeps shadow areas showing faint chars instead of pure space
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+  // Key: upper-right, angled — creates strong brightness gradient across the form
+  const key = new THREE.DirectionalLight(0xffffff, 1.4);
+  key.position.set(4, 3, 2);
+  scene.add(key);
+  // Rim: opposite side, subtle — separates dark edges from background
+  const rim = new THREE.DirectionalLight(0xffffff, 0.25);
+  rim.position.set(-3, -1, -2);
+  scene.add(rim);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: false });
+  renderer.setPixelRatio(1);
+  renderer.setClearColor(0x000000, 1);
+
+  // invert:true → bright surface = dense chars, dark/background = space
+  const effect = new THREE.AsciiEffect(renderer, ' .,:;!*#@', { invert: true, resolution: 0.22 });
+  const el = effect.domElement;
+  el.style.position   = 'absolute';
+  el.style.top        = '0';
+  el.style.left       = '0';
+  el.style.width      = '100%';
+  el.style.height     = '100%';
+  el.style.color      = '#f5a623';
+  el.style.background = '#080808';
+  el.style.fontFamily = "'Space Mono', 'Courier New', monospace";
+  el.style.overflow   = 'hidden';
+  const tooltip = document.getElementById('brain-tooltip');
+  wrap.insertBefore(el, tooltip);
+
+  let W = 0, H = 0, rot = 0, started = false;
 
   function resize() {
-    const w = wrap.offsetWidth || 400, h = wrap.offsetHeight || 400;
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  }
-
-  // ASCII sprite factory — renders a character to a canvas texture
-  function makeCharSprite(char, hexColor, size) {
-    const c = document.createElement('canvas');
-    const px = size || 64;
-    c.width = px; c.height = px;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, px, px);
-    ctx.fillStyle = hexColor;
-    ctx.font = `bold ${Math.floor(px * 0.72)}px "Space Mono", monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(char, px / 2, px / 2);
-    const tex = new THREE.CanvasTexture(c);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(0.18, 0.18, 1);
-    return sprite;
-  }
-
-  const NAV_CHARS  = ['◈', '◆', '◉', '▲', '◇'];
-  const NODE_CHARS = ['·', '+', '×', '∘', '⊹', '✦', '∗', '◦'];
-  const SIG_CHARS  = ['✦', '*'];
-  const AMBER = '#f5a623', TEAL = '#3ecfca', PURPLE = '#7c6af7';
-  const NODE_COLORS = [AMBER, TEAL, PURPLE, AMBER, TEAL];
-
-  const nodePos = [], edgeList = [], sigSprites = [], signals = [];
-  const navSprites = [], navData = [
-    { label: 'How it works', href: '#how-it-works' },
-    { label: 'Features',     href: '#features'     },
-    { label: 'MCP Tools',    href: '#mcp-tools'    },
-    { label: 'Install',      href: '#install'      },
-    { label: 'Integrations', href: '#integrations' },
-  ];
-
-  const tooltip = document.getElementById('brain-tooltip');
-
-  function buildNetwork(verts) {
-    verts.forEach((p, i) => {
-      const isNav = i < navData.length;
-      let sprite;
-      if (isNav) {
-        sprite = makeCharSprite(NAV_CHARS[i], AMBER, 72);
-        sprite.scale.set(0.22, 0.22, 1);
-        navSprites.push(sprite);
-      } else {
-        const char = NODE_CHARS[i % NODE_CHARS.length];
-        const col  = NODE_COLORS[i % NODE_COLORS.length];
-        sprite = makeCharSprite(char, col, 48);
-      }
-      sprite.position.copy(p);
-      nodePos.push(p);
-      group.add(sprite);
-    });
-
-    // Dashed edges — sample points along each edge and place tiny '·' sprites
-    for (let i = 0; i < nodePos.length; i++) {
-      let c = 0;
-      for (let j = i + 1; j < nodePos.length && c < 3; j++) {
-        const dist = nodePos[i].distanceTo(nodePos[j]);
-        if (dist < 0.55) {
-          edgeList.push([i, j]);
-          // Place dash characters along the edge
-          const steps = Math.max(2, Math.floor(dist / 0.12));
-          for (let k = 1; k < steps; k++) {
-            const t = k / steps;
-            const dot = makeCharSprite('·', TEAL, 24);
-            dot.material.opacity = 0.3;
-            dot.scale.set(0.07, 0.07, 1);
-            dot.position.lerpVectors(nodePos[i], nodePos[j], t);
-            group.add(dot);
-          }
-          c++;
-        }
-      }
-    }
-
-    // Signal pulses as ASCII sprites
-    if (edgeList.length) {
-      for (let i = 0; i < 7; i++) {
-        const col = i % 2 === 0 ? AMBER : TEAL;
-        const sp = makeCharSprite(SIG_CHARS[i % SIG_CHARS.length], col, 56);
-        sp.scale.set(0.15, 0.15, 1);
-        group.add(sp);
-        sigSprites.push(sp);
-        signals.push({ edge: edgeList[Math.floor(Math.random() * edgeList.length)], t: Math.random(), speed: 0.007 + Math.random() * 0.009 });
-      }
+    const r = wrap.getBoundingClientRect();
+    W = Math.round(r.width  || wrap.offsetWidth  || 0);
+    H = Math.round(r.height || wrap.offsetHeight || 0);
+    if (W > 0 && H > 0) {
+      effect.setSize(W, H);
+      camera.aspect = W / H;
+      camera.updateProjectionMatrix();
     }
   }
 
-  // Hover / click via raycasting against invisible hit-planes at nav positions
-  const hitMeshes = [];
-  function buildHitMeshes() {
-    navSprites.forEach((sp, i) => {
-      const geo = new THREE.PlaneGeometry(0.22, 0.22);
-      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-      const m = new THREE.Mesh(geo, mat);
-      m.position.copy(sp.position);
-      m.userData.idx = i;
-      group.add(m);
-      hitMeshes.push(m);
-    });
+  function makeFallbackBrain() {
+    const geo = new THREE.SphereGeometry(1, 48, 48);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const bump = Math.sin(x*9)*0.08 + Math.cos(y*8)*0.08 + Math.sin(z*11)*0.06;
+      pos.setXYZ(i, (x + (x > 0 ? 0.28 : -0.28)) * (1+bump), y*(0.80+bump), z*(0.88+bump));
+    }
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xffffff }));
   }
 
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(-99, -99);
-  let hoveredNav = -1;
+  const fallbackMesh = makeFallbackBrain();
+  group.add(fallbackMesh);
 
-  function updateHitPositions() {
-    hitMeshes.forEach((m, i) => m.position.copy(navSprites[i].position));
-  }
-
-  canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-    mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(hitMeshes);
-    if (hits.length) {
-      const idx = hits[0].object.userData.idx;
-      hoveredNav = idx;
-      canvas.style.cursor = 'pointer';
-      tooltip.textContent = navData[idx].label;
-      tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
-      tooltip.style.top  = (e.clientY - rect.top  - 10) + 'px';
-      tooltip.style.opacity = '1';
-    } else {
-      hoveredNav = -1;
-      canvas.style.cursor = 'default';
-      tooltip.style.opacity = '0';
-    }
-  });
-  canvas.addEventListener('mouseleave', () => {
-    tooltip.style.opacity = '0';
-    canvas.style.cursor = 'default';
-    hoveredNav = -1;
-  });
-  canvas.addEventListener('click', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-    mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(hitMeshes);
-    if (hits.length) {
-      document.querySelector(navData[hits[0].object.userData.idx].href)?.scrollIntoView({ behavior: 'smooth' });
-    }
-  });
-
-  let rot = 0;
-  function animate() {
-    requestAnimationFrame(animate);
-    rot += 0.004;
-    group.rotation.y = rot;
-    group.rotation.x = Math.sin(rot * 0.22) * 0.05;
-    if (edgeList.length) {
-      signals.forEach((sig, i) => {
-        sig.t += sig.speed;
-        if (sig.t > 1) { sig.t -= 1; sig.edge = edgeList[Math.floor(Math.random() * edgeList.length)]; }
-        sigSprites[i].position.lerpVectors(nodePos[sig.edge[0]], nodePos[sig.edge[1]], sig.t);
-      });
-    }
-    // Pulse nav sprites
-    navSprites.forEach((sp, i) => {
-      const pulse = 0.18 + Math.sin(rot * 2.5 + i * 1.3) * 0.03;
-      sp.scale.set(pulse, pulse, 1);
-    });
-    updateHitPositions();
-    renderer.render(scene, camera);
-  }
-
-  // Load brain model
   const loader = new THREE.GLTFLoader();
   loader.load(
     'https://raw.githubusercontent.com/bytezpro/threejs-brain-animation/main/src/static/brain.glb',
     function(gltf) {
-      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const box    = new THREE.Box3().setFromObject(gltf.scene);
       const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const s = 2.1 / Math.max(size.x, size.y, size.z);
-      gltf.scene.position.set(-center.x * s, -center.y * s, -center.z * s);
+      const size   = box.getSize(new THREE.Vector3());
+      const s = 1.9 / Math.max(size.x, size.y, size.z);
+      gltf.scene.position.set(-center.x*s, -center.y*s, -center.z*s);
       gltf.scene.scale.setScalar(s);
-      gltf.scene.updateMatrixWorld(true);
-
-      const allVerts = [];
       gltf.scene.traverse(child => {
-        if (!child.isMesh) return;
-        child.material = new THREE.MeshPhongMaterial({
-          color: 0x080818, emissive: 0x030310,
-          specular: 0x112266, shininess: 20,
-          transparent: true, opacity: 0.38, depthWrite: false,
-        });
-        // Subtle wireframe
-        const wire = new THREE.Mesh(child.geometry, new THREE.MeshBasicMaterial({
-          color: 0x3ecfca, wireframe: true, transparent: true, opacity: 0.018, depthWrite: false,
-        }));
-        wire.matrix.copy(child.matrix);
-        wire.matrixAutoUpdate = false;
-        child.parent.add(wire);
-
-        const pa = child.geometry.attributes.position;
-        const mat = child.matrixWorld;
-        const step = Math.max(1, Math.floor(pa.count / 80));
-        for (let i = 0; i < pa.count; i += step) {
-          allVerts.push(new THREE.Vector3(pa.getX(i), pa.getY(i), pa.getZ(i)).applyMatrix4(mat));
-        }
+        if (child.isMesh) child.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
       });
-
+      group.remove(fallbackMesh);
       group.add(gltf.scene);
-
-      const picked = [];
-      const stride = Math.floor(allVerts.length / 40);
-      for (let i = 0; i < 40 && i * stride < allVerts.length; i++) picked.push(allVerts[i * stride]);
-      buildNetwork(picked);
-      buildHitMeshes();
     },
     undefined,
-    function(err) { console.warn('Brain GLB load failed', err); }
+    function() { /* keep fallback */ }
   );
 
+  function animate() {
+    requestAnimationFrame(animate);
+    rot += 0.004;
+    group.rotation.y = rot;
+    group.rotation.x = Math.sin(rot * 0.22) * 0.06;
+    effect.render(scene, camera);
+  }
+
+  function tryStart() {
+    resize();
+    if (W < 10 || H < 10) { setTimeout(tryStart, 50); return; }
+    if (!started) { started = true; animate(); }
+  }
+
   window.addEventListener('resize', resize);
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { resize(); animate(); });
-  } else { resize(); animate(); }
+  // Wait for full layout — use load event as most reliable signal
+  if (document.readyState === 'complete') {
+    setTimeout(tryStart, 0);
+  } else {
+    window.addEventListener('load', () => setTimeout(tryStart, 0));
+    // Also try at DOMContentLoaded as backup
+    document.addEventListener('DOMContentLoaded', () => setTimeout(tryStart, 100));
+  }
 })();
 </script>
 
